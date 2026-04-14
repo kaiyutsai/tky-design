@@ -278,35 +278,41 @@
             return logs.sort(compareDateTimeDesc);
         };
 
-        const YearMonthPicker = ({ value, options, onChange }) => {
+        const YearMonthPicker = ({ value, options, onChange, yearLabel = '年份', monthLabel = '月份' }) => {
             const years = [...new Set(options.map((option) => option.year))];
             const [year, month] = value.split('-');
             const months = options.filter((option) => option.year === year);
 
             return (
                 <div className="flex flex-col sm:flex-row gap-2">
-                    <select
-                        value={year}
-                        onChange={(event) => {
-                            const nextYear = event.target.value;
-                            const nextMonth = options.find((option) => option.year === nextYear)?.month || '01';
-                            onChange(`${nextYear}-${nextMonth}`);
-                        }}
-                        className="border border-stone-300 rounded-lg px-3 py-2 bg-white font-medium text-stone-700"
-                    >
-                        {years.map((optionYear) => (
-                            <option key={optionYear} value={optionYear}>{optionYear} 年</option>
-                        ))}
-                    </select>
-                    <select
-                        value={month}
-                        onChange={(event) => onChange(`${year}-${event.target.value}`)}
-                        className="border border-stone-300 rounded-lg px-3 py-2 bg-white font-medium text-stone-700"
-                    >
-                        {months.map((option) => (
-                            <option key={option.key} value={option.month}>{Number(option.month)} 月</option>
-                        ))}
-                    </select>
+                    <label className="flex flex-col gap-1 text-xs font-bold text-stone-500">
+                        {yearLabel}
+                        <select
+                            value={year}
+                            onChange={(event) => {
+                                const nextYear = event.target.value;
+                                const nextMonth = options.find((option) => option.year === nextYear)?.month || '01';
+                                onChange(`${nextYear}-${nextMonth}`);
+                            }}
+                            className="border border-stone-300 rounded-lg px-3 py-2 bg-white font-medium text-stone-700 min-w-[110px]"
+                        >
+                            {years.map((optionYear) => (
+                                <option key={optionYear} value={optionYear}>{optionYear} 年</option>
+                            ))}
+                        </select>
+                    </label>
+                    <label className="flex flex-col gap-1 text-xs font-bold text-stone-500">
+                        {monthLabel}
+                        <select
+                            value={month}
+                            onChange={(event) => onChange(`${year}-${event.target.value}`)}
+                            className="border border-stone-300 rounded-lg px-3 py-2 bg-white font-medium text-stone-700 min-w-[96px]"
+                        >
+                            {months.map((option) => (
+                                <option key={option.key} value={option.month}>{Number(option.month)} 月</option>
+                            ))}
+                        </select>
+                    </label>
                 </div>
             );
         };
@@ -819,22 +825,36 @@
                                     <h3 className="text-lg font-black text-stone-900">品項分析</h3>
                                     <p className="text-sm text-stone-500 mt-1">依年月份查看每個品項的銷售額、成本、利潤，並可直接下載 Excel。</p>
                                 </div>
-                                <div className="flex flex-col sm:flex-row gap-2">
-                                    <select
-                                        value={itemAnalysisStoreFilter}
-                                        onChange={(event) => setItemAnalysisStoreFilter(event.target.value)}
-                                        className="border border-stone-300 rounded-lg px-3 py-2 bg-white font-medium text-stone-700"
-                                    >
-                                        <option value="all">全部門市</option>
-                                        {STORES.filter((store) => store.id !== 'hq').map((store) => (
-                                            <option key={store.id} value={store.id}>{store.name}</option>
-                                        ))}
-                                    </select>
-                                    <YearMonthPicker value={dashboardMonthKey} options={monthOptions} onChange={setDashboardMonthKey} />
+                                <div className="flex flex-col lg:flex-row gap-3">
+                                    <label className="flex flex-col gap-1 text-xs font-bold text-stone-500">
+                                        門市
+                                        <select
+                                            value={itemAnalysisStoreFilter}
+                                            onChange={(event) => setItemAnalysisStoreFilter(event.target.value)}
+                                            className="border border-stone-300 rounded-lg px-3 py-2 bg-white font-medium text-stone-700 min-w-[180px]"
+                                        >
+                                            <option value="all">全部門市</option>
+                                            {STORES.filter((store) => store.id !== 'hq').map((store) => (
+                                                <option key={store.id} value={store.id}>{store.name}</option>
+                                            ))}
+                                        </select>
+                                    </label>
+                                    <YearMonthPicker value={dashboardMonthKey} options={monthOptions} onChange={setDashboardMonthKey} yearLabel="年份" monthLabel="月份" />
                                     <button onClick={exportItemAnalysis} className="inline-flex items-center justify-center gap-2 bg-stone-900 hover:bg-stone-800 text-white font-bold px-4 py-2 rounded-xl shadow-sm transition">
                                         <DownloadIcon />下載 Excel
                                     </button>
                                 </div>
+                            </div>
+                        </div>
+
+                        <div className="px-6 py-3 bg-stone-50 border-b border-stone-200">
+                            <div className="flex flex-wrap gap-2 text-sm">
+                                <span className="inline-flex items-center px-3 py-1 rounded-full bg-white border border-stone-200 text-stone-700 font-medium">
+                                    門市：{itemAnalysisStoreFilter === 'all' ? '全部門市' : getStoreName(itemAnalysisStoreFilter)}
+                                </span>
+                                <span className="inline-flex items-center px-3 py-1 rounded-full bg-white border border-stone-200 text-stone-700 font-medium">
+                                    期間：{dashboardMonthKey}
+                                </span>
                             </div>
                         </div>
 
