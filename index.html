@@ -186,7 +186,23 @@
 
         const TYPE_META = {
             sale: { label: '門市銷售', movement: 'out', color: 'bg-red-100 text-red-700 border-red-200' },
+            shipment_out: { label: '總部出貨', movement: 'out', color: 'bg-amber-100 text-amber-700 border-amber-200' },
             shipment_in: { label: '門市進貨', movement: 'in', color: 'bg-blue-100 text-blue-700 border-blue-200' }
+        };
+
+        const ORDER_STATUS_META = {
+            requested: { label: '待總部配貨', color: 'bg-amber-100 text-amber-700 border border-amber-200' },
+            approved: { label: '已核准待配貨', color: 'bg-blue-100 text-blue-700 border border-blue-200' },
+            allocated: { label: '已建立配送單', color: 'bg-stone-100 text-stone-700 border border-stone-200' },
+            shipped: { label: '已出庫待點收', color: 'bg-indigo-100 text-indigo-700 border border-indigo-200' },
+            received: { label: '門市已點收', color: 'bg-emerald-100 text-emerald-700 border border-emerald-200' },
+            submitted: { label: '總部採購入庫單', color: 'bg-stone-100 text-stone-700 border border-stone-200' }
+        };
+
+        const SHIPMENT_STATUS_META = {
+            ready: { label: '待出庫掃描', color: 'bg-amber-100 text-amber-700 border border-amber-200' },
+            shipped: { label: '配送途中', color: 'bg-blue-100 text-blue-700 border border-blue-200' },
+            received: { label: '門市已點收', color: 'bg-emerald-100 text-emerald-700 border border-emerald-200' }
         };
 
         const createBatch = ({ store, qty, exp, receivedDate, source }) => ({
@@ -243,16 +259,31 @@
                         [4, 11, 18, 25].forEach((day, slotIndex) => {
                             const actualDay = Math.min(day, daysInMonth);
                             const qty = 6 + (((monthOffset + 2) * 3) + (storeIndex * 4) + (itemIndex * 5) + (slotIndex * 2)) % 18;
-                            const saleDate = formatDate(new Date(monthDate.getFullYear(), monthDate.getMonth(), actualDay));
+                            const shipDate = formatDate(new Date(monthDate.getFullYear(), monthDate.getMonth(), actualDay));
+                            const expiryDate = formatDate(new Date(monthDate.getFullYear(), monthDate.getMonth(), Math.min(actualDay + 8, daysInMonth)));
                             logs.push(buildLogRecord({
                                 id: nextId++,
-                                date: saleDate,
-                                time: `${pad(11 + slotIndex)}:${slotIndex % 2 === 0 ? '20' : '45'}`,
+                                date: shipDate,
+                                time: `${pad(9 + slotIndex)}:${slotIndex % 2 === 0 ? '10' : '40'}`,
                                 store: store.id,
                                 item,
                                 qty,
-                                type: 'sale',
-                                note: '門市銷售'
+                                type: 'shipment_out',
+                                note: '總部出貨',
+                                counterpartyStore: 'hq',
+                                expiryDate
+                            }));
+                            logs.push(buildLogRecord({
+                                id: nextId++,
+                                date: shipDate,
+                                time: `${pad(12 + slotIndex)}:${slotIndex % 2 === 0 ? '15' : '35'}`,
+                                store: store.id,
+                                item,
+                                qty,
+                                type: 'shipment_in',
+                                note: '門市點收',
+                                counterpartyStore: 'hq',
+                                expiryDate
                             }));
                         });
                     });
@@ -381,7 +412,8 @@
                     qty: 40,
                     mfgDate: formatDate(),
                     expDate: addDays(9),
-                    status: 'shipped'
+                    status: 'ready',
+                    linkedOrderId: 'ORD-202604-001'
                 },
                 {
                     id: 'SHP-202604-002',
@@ -392,7 +424,46 @@
                     qty: 28,
                     mfgDate: addDays(-3),
                     expDate: addDays(12),
+                    status: 'received',
+                    linkedOrderId: 'ORD-202604-002'
+                }
+            ]);
+            const [orders, setOrders] = useState([
+                {
+                    id: 'ORD-202604-001',
+                    date: formatDate(),
+                    requesterStore: 'store-kh',
+                    requesterName: '高雄師大',
+                    targetStore: 'store-kh',
+                    itemId: 'P002',
+                    item: '甜不辣',
+                    qty: 40,
+                    sourceType: '總部補貨',
+                    status: 'allocated'
+                },
+                {
+                    id: 'ORD-202604-002',
+                    date: addDays(-4),
+                    requesterStore: 'store-hc',
+                    requesterName: '新竹師大',
+                    targetStore: 'store-hc',
+                    itemId: 'P005',
+                    item: '鴨翅',
+                    qty: 28,
+                    sourceType: '總部補貨',
                     status: 'received'
+                },
+                {
+                    id: 'ORD-202604-003',
+                    date: formatDate(),
+                    requesterStore: 'hq',
+                    requesterName: '營運總部(管理員)',
+                    targetStore: 'hq',
+                    itemId: 'P001',
+                    item: '東山鴨頭',
+                    qty: 60,
+                    sourceType: '供應商進貨',
+                    status: 'submitted'
                 }
             ]);
             const [toastMessage, setToastMessage] = useState('');
@@ -417,6 +488,18 @@
             const getStoreName = (storeId) => STORES.find((store) => store.id === storeId)?.name || '未指定';
             const getStoreAddress = (storeId) => STORES.find((store) => store.id === storeId)?.address || '';
             const getItemById = (itemId) => inventory.find((item) => item.id === itemId) || CATALOG.find((item) => item.id === itemId);
+            const getOrderStatusMeta = (status) => ORDER_STATUS_META[status] || { label: status || '-', color: 'bg-stone-100 text-stone-700 border border-stone-200' };
+            const getShipmentStatusMeta = (status) => SHIPMENT_STATUS_META[status] || { label: status || '-', color: 'bg-stone-100 text-stone-700 border border-stone-200' };
+            const getReconciliationMeta = (order, shipment) => {
+                if (order && shipment) {
+                    if (shipment.status === 'received') return { label: '下單、出庫、點收已完成', color: 'bg-emerald-100 text-emerald-700 border border-emerald-200' };
+                    if (shipment.status === 'shipped') return { label: '已出庫待門市點收', color: 'bg-blue-100 text-blue-700 border border-blue-200' };
+                    return { label: '已勾稽待出庫', color: 'bg-amber-100 text-amber-700 border border-amber-200' };
+                }
+                if (order && !shipment) return { label: '有下單但尚未建立配送', color: 'bg-rose-100 text-rose-700 border border-rose-200' };
+                if (!order && shipment) return { label: '配送單未綁定門市下單', color: 'bg-stone-100 text-stone-700 border border-stone-200' };
+                return { label: '待確認', color: 'bg-stone-100 text-stone-700 border border-stone-200' };
+            };
 
             const getStockForStore = (item, storeId) => {
                 if (storeId === 'all') return item.batches.reduce((total, batch) => total + batch.qty, 0);
@@ -540,17 +623,11 @@
                 if (logsStoreFilter !== 'all' && !STORES.some((store) => store.id === logsStoreFilter)) setLogsStoreFilter('all');
             }, [currentRole, isHQ]);
 
-            useEffect(() => {
-                if (currentRole === 'hq' && activeTab === 'pos') {
-                    setActiveTab('dashboard');
-                }
-            }, [currentRole, activeTab]);
-
             const dashboardDateLabel = dashboardDate.replaceAll('-', '/');
 
             const dashboardStats = useMemo(() => {
                 const scopedSales = logs.filter((log) => (
-                    log.type === 'sale'
+                    log.type === 'shipment_out'
                     && log.date === dashboardDateLabel
                     && (dashboardStoreFilter === 'all' || log.store === dashboardStoreFilter)
                 ));
@@ -571,11 +648,11 @@
 
                 const trendData = useMemo(() => {
                     return Array.from({ length: 7 }, (_, index) => {
-                        const date = new Date(`${dashboardDate}T00:00:00`);
+                    const date = new Date(`${dashboardDate}T00:00:00`);
                     date.setDate(date.getDate() - (6 - index));
                     const dateString = formatDate(date);
                     const dayLogs = logs.filter((log) => (
-                        log.type === 'sale'
+                        log.type === 'shipment_out'
                         && log.date === dateString
                         && (dashboardStoreFilter === 'all' || log.store === dashboardStoreFilter)
                     ));
@@ -585,7 +662,7 @@
 
             const dashboardTopStores = useMemo(() => {
                 const grouped = {};
-                logs.filter((log) => log.type === 'sale' && log.date === dashboardDateLabel).forEach((log) => {
+                logs.filter((log) => log.type === 'shipment_out' && log.date === dashboardDateLabel).forEach((log) => {
                     if (!grouped[log.store]) {
                         grouped[log.store] = { storeId: log.store, revenue: 0, qty: 0 };
                     }
@@ -601,7 +678,7 @@
             const itemAnalysisRows = useMemo(() => {
                 const grouped = {};
                 logs.filter((log) => (
-                    log.type === 'sale'
+                    log.type === 'shipment_out'
                     && toYearMonth(log.date) === dashboardMonthKey
                     && (itemAnalysisStoreFilter === 'all' || log.store === itemAnalysisStoreFilter)
                 )).forEach((log) => {
@@ -764,11 +841,11 @@
 
                     <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
                         <div className="bg-white rounded-2xl border border-stone-200 p-6 shadow-sm border-l-4 border-l-red-600">
-                            <p className="text-sm text-stone-500 font-semibold">當日銷售份數</p>
+                            <p className="text-sm text-stone-500 font-semibold">當日總部出貨數量</p>
                             <p className="text-3xl font-black text-stone-900 mt-2">{dashboardStats.salesQty}</p>
                         </div>
                         <div className="bg-white rounded-2xl border border-stone-200 p-6 shadow-sm border-l-4 border-l-blue-600">
-                            <p className="text-sm text-stone-500 font-semibold">當日營業額</p>
+                            <p className="text-sm text-stone-500 font-semibold">當日出貨售價總額</p>
                             <p className="text-3xl font-black text-stone-900 mt-2">{formatCurrency(dashboardStats.revenue)}</p>
                         </div>
                         <div className="bg-white rounded-2xl border border-stone-200 p-6 shadow-sm border-l-4 border-l-emerald-600">
@@ -797,8 +874,8 @@
                     <div className="bg-white rounded-2xl border border-stone-200 p-6 shadow-sm">
                         <div className="flex items-center justify-between gap-3 mb-4">
                             <div>
-                                <h3 className="text-lg font-black text-stone-900">當日營業額 Top 3</h3>
-                                <p className="text-sm text-stone-500 mt-1">{dashboardDateLabel} 全門市排行</p>
+                                <h3 className="text-lg font-black text-stone-900">當日總部出貨售價 Top 3</h3>
+                                <p className="text-sm text-stone-500 mt-1">{dashboardDateLabel} 各門市出貨排行</p>
                             </div>
                         </div>
                         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -811,7 +888,7 @@
                                 <div key={store.storeId} className="rounded-2xl border border-stone-200 bg-stone-50 p-5">
                                     <div className="text-xs font-black text-red-700">TOP {index + 1}</div>
                                     <div className="text-xl font-black text-stone-900 mt-2">{getStoreName(store.storeId)}</div>
-                                    <div className="text-sm text-stone-500 mt-2">銷售份數 {store.qty}</div>
+                                    <div className="text-sm text-stone-500 mt-2">出貨數量 {store.qty}</div>
                                     <div className="text-2xl font-black text-stone-900 mt-3">{formatCurrency(store.revenue)}</div>
                                 </div>
                             ))}
@@ -976,9 +1053,50 @@
             };
 
             const ShippingView = () => {
+                const pendingStoreOrders = orders.filter((order) => order.requesterStore !== 'hq' && ['requested', 'approved'].includes(order.status));
+                const reconciliationRows = useMemo(() => {
+                    const storeOrders = orders.filter((order) => order.requesterStore !== 'hq');
+                    const matchedShipmentIds = new Set();
+
+                    const orderRows = storeOrders.map((order) => {
+                        const shipment = shipments.find((entry) => entry.linkedOrderId === order.id) || null;
+                        if (shipment) matchedShipmentIds.add(shipment.id);
+                        return { rowKey: `order-${order.id}`, order, shipment, meta: getReconciliationMeta(order, shipment) };
+                    });
+
+                    const shipmentOnlyRows = shipments
+                        .filter((shipment) => !matchedShipmentIds.has(shipment.id) && !shipment.linkedOrderId)
+                        .map((shipment) => ({ rowKey: `shipment-${shipment.id}`, order: null, shipment, meta: getReconciliationMeta(null, shipment) }));
+
+                    return [...orderRows, ...shipmentOnlyRows].sort((a, b) => {
+                        const aDate = (a.order?.date || a.shipment?.date || '').replaceAll('/', '-');
+                        const bDate = (b.order?.date || b.shipment?.date || '').replaceAll('/', '-');
+                        return new Date(`${bDate}T00:00:00`) - new Date(`${aDate}T00:00:00`);
+                    });
+                }, [orders, shipments]);
+                const reconciliationSummary = useMemo(() => ({
+                    orderCount: reconciliationRows.filter((row) => row.order).length,
+                    matchedCount: reconciliationRows.filter((row) => row.order && row.shipment).length,
+                    shippingCount: reconciliationRows.filter((row) => row.shipment?.status === 'shipped').length,
+                    receivedCount: reconciliationRows.filter((row) => row.shipment?.status === 'received').length
+                }), [reconciliationRows]);
+                const [selectedOrderId, setSelectedOrderId] = useState(pendingStoreOrders[0]?.id || '');
                 const [selectedStore, setSelectedStore] = useState('store-kh');
                 const [selectedItem, setSelectedItem] = useState(CATALOG[0].id);
                 const [qty, setQty] = useState(20);
+
+                useEffect(() => {
+                    if (selectedOrderId && pendingStoreOrders.some((order) => order.id === selectedOrderId)) return;
+                    setSelectedOrderId(pendingStoreOrders[0]?.id || '');
+                }, [pendingStoreOrders, selectedOrderId]);
+
+                useEffect(() => {
+                    const selectedOrder = orders.find((order) => order.id === selectedOrderId);
+                    if (!selectedOrder) return;
+                    setSelectedStore(selectedOrder.targetStore);
+                    setSelectedItem(selectedOrder.itemId);
+                    setQty(selectedOrder.qty);
+                }, [selectedOrderId, orders]);
 
                 const handleCreateShipment = () => {
                     const item = getItemById(selectedItem);
@@ -995,13 +1113,17 @@
                         qty,
                         mfgDate: formatDate(),
                         expDate: addDays(10),
-                        status: 'shipped'
+                        status: 'ready',
+                        linkedOrderId: selectedOrderId || ''
                     };
 
                     setInventory((previous) => changeInventoryQty(previous, item.id, 'hq', -qty));
                     setShipments((previous) => [shipment, ...previous]);
+                    if (selectedOrderId) {
+                        setOrders((previous) => previous.map((order) => order.id === selectedOrderId ? { ...order, status: 'allocated' } : order));
+                    }
                     setLabelModal(shipment);
-                    showToast(`已建立配送單 ${shipment.id}。`);
+                    showToast(`已建立待出庫配送單 ${shipment.id}。`);
                 };
 
                 return (
@@ -1009,6 +1131,13 @@
                         <div className="bg-white rounded-2xl border border-stone-200 shadow-sm p-6">
                             <h3 className="text-lg font-black text-stone-900 flex items-center gap-2"><TruckIcon />建立配送單</h3>
                             <div className="space-y-4 mt-6">
+                                <div>
+                                    <label className="block text-sm font-semibold text-stone-600 mb-2">門市下單單號</label>
+                                    <select value={selectedOrderId} onChange={(event) => setSelectedOrderId(event.target.value)} className="w-full border border-stone-300 rounded-xl px-3 py-3 bg-stone-50 font-medium">
+                                        <option value="">不帶入門市下單</option>
+                                        {pendingStoreOrders.map((order) => <option key={order.id} value={order.id}>{order.id} / {getStoreName(order.targetStore)} / {order.item} / {order.qty}</option>)}
+                                    </select>
+                                </div>
                                 <div>
                                     <label className="block text-sm font-semibold text-stone-600 mb-2">目的門市</label>
                                     <select value={selectedStore} onChange={(event) => setSelectedStore(event.target.value)} className="w-full border border-stone-300 rounded-xl px-3 py-3 bg-stone-50 font-medium">
@@ -1031,34 +1160,159 @@
 
                         <div className="bg-white rounded-2xl border border-stone-200 shadow-sm overflow-hidden">
                             <div className="p-6 border-b border-stone-200 bg-stone-50">
-                                <h3 className="text-lg font-black text-stone-900">配送單列表</h3>
-                                <p className="text-sm text-stone-500 mt-1">可查看配送狀態，也可再次下載標籤。</p>
+                                <div className="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
+                                    <div>
+                                        <h3 className="text-lg font-black text-stone-900">門市下單清單與出庫送貨勾稽</h3>
+                                        <p className="text-sm text-stone-500 mt-1">把門市下單、總部配送單與門市點收狀態放在同一張表，方便總部核對。</p>
+                                    </div>
+                                    <div className="inline-flex items-center rounded-full bg-stone-100 border border-stone-200 px-4 py-2 text-sm font-semibold text-stone-700">
+                                        共 {reconciliationRows.length} 筆勾稽資料
+                                    </div>
+                                </div>
+                                <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 mt-5">
+                                    <div className="rounded-xl bg-stone-100 border border-stone-200 p-4">
+                                        <p className="text-xs font-semibold text-stone-500">門市下單筆數</p>
+                                        <p className="text-2xl font-black text-stone-900 mt-1">{reconciliationSummary.orderCount}</p>
+                                    </div>
+                                    <div className="rounded-xl bg-blue-50 border border-blue-100 p-4">
+                                        <p className="text-xs font-semibold text-blue-700">已建立配送</p>
+                                        <p className="text-2xl font-black text-stone-900 mt-1">{reconciliationSummary.matchedCount}</p>
+                                    </div>
+                                    <div className="rounded-xl bg-amber-50 border border-amber-100 p-4">
+                                        <p className="text-xs font-semibold text-amber-700">配送途中</p>
+                                        <p className="text-2xl font-black text-stone-900 mt-1">{reconciliationSummary.shippingCount}</p>
+                                    </div>
+                                    <div className="rounded-xl bg-emerald-50 border border-emerald-100 p-4">
+                                        <p className="text-xs font-semibold text-emerald-700">門市已點收</p>
+                                        <p className="text-2xl font-black text-stone-900 mt-1">{reconciliationSummary.receivedCount}</p>
+                                    </div>
+                                </div>
                             </div>
                             <div className="overflow-x-auto">
-                                <table className="w-full min-w-[720px] text-left">
+                                <table className="w-full min-w-[1180px] text-left">
                                     <thead className="bg-stone-100 text-stone-600 text-sm">
                                         <tr>
-                                            <th className="p-4 border-b border-stone-200 font-bold">單號 / 日期</th>
-                                            <th className="p-4 border-b border-stone-200 font-bold">目的門市</th>
-                                            <th className="p-4 border-b border-stone-200 font-bold">品項</th>
-                                            <th className="p-4 border-b border-stone-200 font-bold text-center">狀態</th>
-                                            <th className="p-4 border-b border-stone-200 font-bold text-center">標籤</th>
+                                            <th className="p-4 border-b border-stone-200 font-bold">門市下單</th>
+                                            <th className="p-4 border-b border-stone-200 font-bold">門市</th>
+                                            <th className="p-4 border-b border-stone-200 font-bold">品項 / 數量</th>
+                                            <th className="p-4 border-b border-stone-200 font-bold text-center">下單狀態</th>
+                                            <th className="p-4 border-b border-stone-200 font-bold">配送單號</th>
+                                            <th className="p-4 border-b border-stone-200 font-bold text-center">出貨狀態</th>
+                                            <th className="p-4 border-b border-stone-200 font-bold text-center">勾稽結果</th>
                                         </tr>
                                     </thead>
                                     <tbody className="divide-y divide-stone-100">
-                                        {shipments.map((shipment) => (
-                                            <tr key={shipment.id} className="hover:bg-stone-50">
-                                                <td className="p-4"><div className="font-black text-stone-900">{shipment.id}</div><div className="text-xs text-stone-500">{shipment.date}</div></td>
-                                                <td className="p-4 font-semibold text-stone-700">{getStoreName(shipment.targetStore)}</td>
-                                                <td className="p-4"><div className="font-bold text-red-700">{shipment.item}</div><div className="text-xs text-stone-500">數量 {shipment.qty} / 有效日 {shipment.expDate}</div></td>
-                                                <td className="p-4 text-center"><span className={`inline-flex px-3 py-1 rounded-full text-xs font-bold ${shipment.status === 'shipped' ? 'bg-blue-100 text-blue-700' : 'bg-green-100 text-green-700'}`}>{shipment.status === 'shipped' ? '配送中' : '已點收'}</span></td>
+                                        {reconciliationRows.length === 0 && (
+                                            <tr>
+                                                <td colSpan="7" className="p-8 text-center text-stone-500 font-medium">目前還沒有可勾稽的門市下單或配送資料。</td>
+                                            </tr>
+                                        )}
+                                        {reconciliationRows.map(({ rowKey, order, shipment, meta }) => (
+                                            <tr key={rowKey} className="hover:bg-stone-50">
+                                                <td className="p-4">
+                                                    {order ? (
+                                                        <>
+                                                            <div className="font-black text-stone-900">{order.id}</div>
+                                                            <div className="text-xs text-stone-500">{order.date}</div>
+                                                        </>
+                                                    ) : (
+                                                        <span className="text-sm text-stone-400">未綁定門市下單</span>
+                                                    )}
+                                                </td>
+                                                <td className="p-4 font-semibold text-stone-700">{getStoreName(order?.targetStore || shipment?.targetStore)}</td>
+                                                <td className="p-4">
+                                                    <div className="font-bold text-stone-900">{order?.item || shipment?.item || '-'}</div>
+                                                    <div className="text-xs text-stone-500">數量 {order?.qty || shipment?.qty || 0}</div>
+                                                </td>
                                                 <td className="p-4 text-center">
-                                                    <button onClick={() => setLabelModal(shipment)} className="inline-flex items-center gap-2 border border-stone-300 px-3 py-2 rounded-lg text-sm font-bold text-stone-700 hover:text-red-700 hover:border-red-300 transition">
-                                                        <QrCodeIcon />查看標籤
-                                                    </button>
+                                                    {order ? (
+                                                        <span className={`inline-flex px-3 py-1 rounded-full text-xs font-bold ${getOrderStatusMeta(order.status).color}`}>
+                                                            {getOrderStatusMeta(order.status).label}
+                                                        </span>
+                                                    ) : (
+                                                        <span className="inline-flex px-3 py-1 rounded-full text-xs font-bold bg-stone-100 text-stone-500 border border-stone-200">無下單資料</span>
+                                                    )}
+                                                </td>
+                                                <td className="p-4">
+                                                    {shipment ? (
+                                                        <button onClick={() => setLabelModal(shipment)} className="inline-flex items-center gap-2 border border-stone-300 px-3 py-2 rounded-lg text-sm font-bold text-stone-700 hover:text-red-700 hover:border-red-300 transition">
+                                                            <QrCodeIcon />{shipment.id}
+                                                            <span className="text-xs text-stone-400">{shipment.date}</span>
+                                                        </button>
+                                                    ) : (
+                                                        <span className="text-sm text-stone-400">尚未建立配送單</span>
+                                                    )}
+                                                </td>
+                                                <td className="p-4 text-center">
+                                                    {shipment ? (
+                                                        <span className={`inline-flex px-3 py-1 rounded-full text-xs font-bold ${getShipmentStatusMeta(shipment.status).color}`}>
+                                                            {getShipmentStatusMeta(shipment.status).label}
+                                                        </span>
+                                                    ) : (
+                                                        <span className="inline-flex px-3 py-1 rounded-full text-xs font-bold bg-stone-100 text-stone-500 border border-stone-200">未出貨</span>
+                                                    )}
+                                                </td>
+                                                <td className="p-4 text-center">
+                                                    <span className={`inline-flex px-3 py-1 rounded-full text-xs font-bold ${meta.color}`}>
+                                                        {meta.label}
+                                                    </span>
                                                 </td>
                                             </tr>
                                         ))}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+
+                        <div className="bg-white rounded-2xl border border-stone-200 shadow-sm overflow-hidden">
+                            <div className="p-6 border-b border-stone-200 bg-stone-50">
+                                <h3 className="text-lg font-black text-stone-900">配送對照簡表</h3>
+                                <p className="text-sm text-stone-500 mt-1">保留原本的快速查看清單，方便直接開啟配送標籤。</p>
+                            </div>
+                            <div className="overflow-x-auto">
+                                <table className="w-full min-w-[880px] text-left">
+                                    <thead className="bg-stone-100 text-stone-600 text-sm">
+                                        <tr>
+                                            <th className="p-4 border-b border-stone-200 font-bold">下單單號 / 日期</th>
+                                            <th className="p-4 border-b border-stone-200 font-bold">門市</th>
+                                            <th className="p-4 border-b border-stone-200 font-bold">品項</th>
+                                            <th className="p-4 border-b border-stone-200 font-bold">配送單</th>
+                                            <th className="p-4 border-b border-stone-200 font-bold text-center">勾稽狀態</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-stone-100">
+                                        {orders.filter((order) => order.requesterStore !== 'hq').map((order) => {
+                                            const matchedShipment = shipments.find((shipment) => shipment.linkedOrderId === order.id);
+                                            const reconciliationLabel = !matchedShipment
+                                                ? '待建立配送'
+                                                : matchedShipment.status === 'ready'
+                                                    ? '待出庫掃描'
+                                                    : matchedShipment.status === 'shipped'
+                                                        ? '已出庫待門市點收'
+                                                        : '已完成點收';
+
+                                            return (
+                                                <tr key={order.id} className="hover:bg-stone-50">
+                                                    <td className="p-4"><div className="font-black text-stone-900">{order.id}</div><div className="text-xs text-stone-500">{order.date}</div></td>
+                                                    <td className="p-4 font-semibold text-stone-700">{getStoreName(order.targetStore)}</td>
+                                                    <td className="p-4"><div className="font-bold text-red-700">{order.item}</div><div className="text-xs text-stone-500">數量 {order.qty}</div></td>
+                                                    <td className="p-4">
+                                                        {matchedShipment ? (
+                                                            <button onClick={() => setLabelModal(matchedShipment)} className="inline-flex items-center gap-2 border border-stone-300 px-3 py-2 rounded-lg text-sm font-bold text-stone-700 hover:text-red-700 hover:border-red-300 transition">
+                                                                <QrCodeIcon />{matchedShipment.id}
+                                                            </button>
+                                                        ) : (
+                                                            <span className="text-sm text-stone-400">尚未建立</span>
+                                                        )}
+                                                    </td>
+                                                    <td className="p-4 text-center">
+                                                        <span className="inline-flex px-3 py-1 rounded-full text-xs font-bold bg-stone-100 text-stone-700">
+                                                            {reconciliationLabel}
+                                                        </span>
+                                                    </td>
+                                                </tr>
+                                            );
+                                        })}
                                     </tbody>
                                 </table>
                             </div>
@@ -1068,17 +1322,36 @@
             };
 
             const ScannerView = () => {
-                const pendingShipments = shipments.filter((shipment) => shipment.targetStore === currentRole && shipment.status === 'shipped');
+                const hqReadyShipments = shipments.filter((shipment) => shipment.status === 'ready');
+                const storePendingShipments = shipments.filter((shipment) => shipment.targetStore === currentRole && shipment.status === 'shipped');
+                const pendingShipments = isHQ ? hqReadyShipments : storePendingShipments;
                 const [selectedShipmentId, setSelectedShipmentId] = useState(pendingShipments[0]?.id || '');
 
                 useEffect(() => {
                     setSelectedShipmentId(pendingShipments[0]?.id || '');
-                }, [currentRole, shipments.length]);
+                }, [currentRole, shipments, isHQ]);
 
-                const handleReceiveShipment = () => {
-                    if (currentRole === 'hq') return showToast('總部不需要做門市點收。');
+                const handleScanShipment = () => {
                     const shipment = shipments.find((entry) => entry.id === selectedShipmentId);
-                    if (!shipment) return showToast('請先選擇待點收配送單。');
+                    if (!shipment) return showToast(isHQ ? '請先選擇待出庫配送單。' : '請先選擇待點收配送單。');
+
+                    if (isHQ) {
+                        setShipments((previous) => previous.map((entry) => entry.id === shipment.id ? { ...entry, status: 'shipped' } : entry));
+                        if (shipment.linkedOrderId) {
+                            setOrders((previous) => previous.map((order) => order.id === shipment.linkedOrderId ? { ...order, status: 'shipped' } : order));
+                        }
+                        appendLog(createLiveLog({
+                            itemId: shipment.itemId,
+                            qty: shipment.qty,
+                            store: shipment.targetStore,
+                            type: 'shipment_out',
+                            note: `總部出貨 ${shipment.id}`,
+                            counterpartyStore: 'hq',
+                            expiryDate: shipment.expDate
+                        }));
+                        showToast(`已完成配送單 ${shipment.id} 出庫掃描。`);
+                        return;
+                    }
 
                     setInventory((previous) => changeInventoryQty(previous, shipment.itemId, currentRole, shipment.qty, {
                         expDate: shipment.expDate,
@@ -1086,6 +1359,9 @@
                         source: `配送點收 ${shipment.id}`
                     }));
                     setShipments((previous) => previous.map((entry) => entry.id === shipment.id ? { ...entry, status: 'received' } : entry));
+                    if (shipment.linkedOrderId) {
+                        setOrders((previous) => previous.map((order) => order.id === shipment.linkedOrderId ? { ...order, status: 'received' } : order));
+                    }
                     appendLog(createLiveLog({ itemId: shipment.itemId, qty: shipment.qty, store: currentRole, type: 'shipment_in', note: `由總部配送 ${shipment.id}`, counterpartyStore: 'hq', expiryDate: shipment.expDate }));
                     showToast(`已完成配送單 ${shipment.id} 點收。`);
                 };
@@ -1094,7 +1370,7 @@
                     <div className="max-w-5xl mx-auto grid grid-cols-1 lg:grid-cols-[360px_minmax(0,1fr)] gap-6">
                         <div className="bg-white rounded-2xl border border-stone-200 shadow-sm overflow-hidden">
                             <div className="bg-stone-900 text-white p-5 border-b-4 border-red-700">
-                                <h3 className="font-black tracking-wide flex items-center gap-2"><ScanIcon />門市進貨掃描</h3>
+                                <h3 className="font-black tracking-wide flex items-center gap-2"><ScanIcon />{isHQ ? '總部出庫人員掃描' : '門市進貨掃描'}</h3>
                             </div>
                             <div className="relative h-64 bg-stone-950 overflow-hidden flex items-center justify-center">
                                 <img src="https://images.unsplash.com/photo-1588168333986-5078d3ae3976?auto=format&fit=crop&q=80&w=800" alt="scanner" className="absolute inset-0 w-full h-full object-cover opacity-25 grayscale" />
@@ -1111,132 +1387,106 @@
 
                         <div className="bg-white rounded-2xl border border-stone-200 shadow-sm p-6">
                             <div className="rounded-xl border border-blue-200 bg-blue-50 p-4 mb-4">
-                                <div className="text-sm font-semibold text-blue-800">進貨點收只保留掃描配送單，不提供手動入庫。</div>
+                                <div className="text-sm font-semibold text-blue-800">{isHQ ? '總部只做出庫掃描，門市才做進貨點收。' : '進貨點收只保留掃描配送單，不提供手動入庫。'}</div>
                             </div>
                             <div className="space-y-4">
                                 <div className="rounded-xl border border-blue-200 bg-blue-50 p-4">
-                                    <label className="block text-sm font-semibold text-blue-800 mb-2">待點收配送單</label>
-                                    <select value={selectedShipmentId} onChange={(event) => setSelectedShipmentId(event.target.value)} className="w-full border border-blue-300 rounded-lg px-3 py-3 bg-white font-medium" disabled={!pendingShipments.length || currentRole === 'hq'}>
-                                        {!pendingShipments.length && <option value="">目前沒有待點收配送</option>}
+                                    <label className="block text-sm font-semibold text-blue-800 mb-2">{isHQ ? '待出庫配送單' : '待點收配送單'}</label>
+                                    <select value={selectedShipmentId} onChange={(event) => setSelectedShipmentId(event.target.value)} className="w-full border border-blue-300 rounded-lg px-3 py-3 bg-white font-medium" disabled={!pendingShipments.length}>
+                                        {!pendingShipments.length && <option value="">{isHQ ? '目前沒有待出庫配送' : '目前沒有待點收配送'}</option>}
                                         {pendingShipments.map((shipment) => <option key={shipment.id} value={shipment.id}>{shipment.id} / {shipment.item} / {shipment.qty}</option>)}
                                     </select>
                                 </div>
-                                <button onClick={handleReceiveShipment} disabled={!pendingShipments.length || currentRole === 'hq'} className={`w-full py-4 rounded-xl font-bold text-white text-lg shadow-sm transition ${pendingShipments.length && currentRole !== 'hq' ? 'bg-blue-600 hover:bg-blue-700' : 'bg-stone-300 cursor-not-allowed'}`}>完成點收</button>
+                                <button onClick={handleScanShipment} disabled={!pendingShipments.length} className={`w-full py-4 rounded-xl font-bold text-white text-lg shadow-sm transition ${pendingShipments.length ? 'bg-blue-600 hover:bg-blue-700' : 'bg-stone-300 cursor-not-allowed'}`}>{isHQ ? '完成出庫掃描' : '完成點收'}</button>
                             </div>
                         </div>
                     </div>
                 );
             };
 
-            const POSView = () => {
-                const [cart, setCart] = useState([]);
-                const [targetStore, setTargetStore] = useState(currentRole);
+            const OrderView = () => {
+                const [selectedItem, setSelectedItem] = useState(CATALOG[0].id);
+                const [qty, setQty] = useState(20);
 
-                useEffect(() => {
-                    setTargetStore(currentRole);
-                }, [currentRole]);
+                const handleCreateOrder = () => {
+                    const item = getItemById(selectedItem);
+                    if (qty <= 0) return showToast('下單數量必須大於 0。');
 
-                const addToCart = (item) => {
-                    if (getStockForStore(item, targetStore) <= 0) return;
-                    setCart((previous) => {
-                        const existing = previous.find((entry) => entry.id === item.id);
-                        if (existing) return previous.map((entry) => entry.id === item.id ? { ...entry, qty: entry.qty + 1 } : entry);
-                        return [...previous, { ...item, qty: 1 }];
-                    });
+                    const order = {
+                        id: `ORD-${Date.now().toString().slice(-6)}`,
+                        date: formatDate(),
+                        requesterStore: currentRole,
+                        requesterName: getStoreName(currentRole),
+                        targetStore: currentRole,
+                        itemId: item.id,
+                        item: item.name,
+                        qty,
+                        sourceType: isHQ ? '供應商進貨' : '總部補貨',
+                        status: isHQ ? 'submitted' : 'requested'
+                    };
+
+                    setOrders((previous) => [order, ...previous]);
+                    showToast(isHQ ? `已建立總部進貨單 ${order.id}。` : `已送出門市補貨單 ${order.id}。`);
                 };
 
-                const updateQty = (itemId, delta) => {
-                    setCart((previous) => previous.map((entry) => entry.id === itemId ? { ...entry, qty: Math.max(0, entry.qty + delta) } : entry).filter((entry) => entry.qty > 0));
-                };
-
-                const totalAmount = cart.reduce((total, item) => total + (item.price * item.qty), 0);
-
-                const handleCheckout = () => {
-                    if (!cart.length) return;
-                    for (const cartItem of cart) {
-                        const item = getItemById(cartItem.id);
-                        if (cartItem.qty > getStockForStore(item, targetStore)) return showToast(`${cartItem.name} 庫存不足，請重新確認。`);
-                    }
-
-                    setInventory((previous) => {
-                        let nextInventory = previous;
-                        cart.forEach((cartItem) => {
-                            nextInventory = changeInventoryQty(nextInventory, cartItem.id, targetStore, -cartItem.qty);
-                        });
-                        return nextInventory;
-                    });
-
-                    cart.forEach((cartItem) => appendLog(createLiveLog({ itemId: cartItem.id, qty: cartItem.qty, store: targetStore, type: 'sale', note: 'POS 結帳' })));
-                    setCart([]);
-                    showToast(`已完成結帳，金額 ${formatCurrency(totalAmount)}。`);
-                };
+                const visibleOrders = isHQ
+                    ? orders
+                    : orders.filter((order) => order.requesterStore === currentRole || order.targetStore === currentRole);
 
                 return (
-                    <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_360px] gap-6 h-full">
-                        <div className="bg-white rounded-2xl border border-stone-200 shadow-sm overflow-hidden flex flex-col">
-                            <div className="p-5 border-b border-stone-200 bg-stone-50 flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-                                <div>
-                                    <h3 className="text-lg font-black text-stone-900 flex items-center gap-2"><FireIcon />門市點餐系統</h3>
-                                    <p className="text-sm text-stone-500 mt-1">直接使用現有門市庫存做前台銷售。</p>
-                                </div>
-                                {isHQ && (
-                                    <select value={targetStore} onChange={(event) => setTargetStore(event.target.value)} className="border border-stone-300 rounded-lg px-3 py-2 bg-white font-medium">
-                                        {STORES.filter((store) => store.id !== 'hq').map((store) => <option key={store.id} value={store.id}>{store.name}</option>)}
-                                    </select>
-                                )}
+                    <div className="grid grid-cols-1 xl:grid-cols-[340px_minmax(0,1fr)] gap-6">
+                        <div className="bg-white rounded-2xl border border-stone-200 shadow-sm p-6">
+                            <h3 className="text-lg font-black text-stone-900 flex items-center gap-2"><CartIcon />進貨下單</h3>
+                            <div className="rounded-xl bg-stone-100 border border-stone-200 p-4 mt-5 mb-5">
+                                <p className="text-xs font-semibold text-stone-500">下單角色</p>
+                                <p className="text-lg font-black text-stone-900 mt-1">{getStoreName(currentRole)}</p>
+                                <p className="text-sm text-stone-500 mt-2">{isHQ ? '總部建立供應商進貨單' : '門市向總部提出補貨需求'}</p>
                             </div>
-                            <div className="p-4 grid grid-cols-2 lg:grid-cols-3 gap-4 overflow-y-auto custom-scrollbar bg-stone-50/50">
-                                {inventory.map((item) => {
-                                    const stock = getStockForStore(item, targetStore);
-                                    const soldOut = stock <= 0;
-                                    return (
-                                        <button key={item.id} onClick={() => addToCart(item)} disabled={soldOut} className={`rounded-2xl border p-4 text-left transition ${soldOut ? 'bg-stone-100 border-stone-200 opacity-60 cursor-not-allowed' : 'bg-white border-stone-200 hover:border-red-400 hover:shadow-md'}`}>
-                                            <div className="text-xs font-semibold text-stone-500">{item.category}</div>
-                                            <div className="text-lg font-black text-stone-900 mt-1">{item.name}</div>
-                                            <div className="mt-3 flex items-end justify-between">
-                                                <span className="text-red-700 font-black text-xl">{formatCurrency(item.price)}</span>
-                                                <span className="text-xs font-bold bg-stone-100 px-2 py-1 rounded-lg text-stone-600">庫存 {stock}</span>
-                                            </div>
-                                        </button>
-                                    );
-                                })}
+                            <div className="space-y-4">
+                                <div>
+                                    <label className="block text-sm font-semibold text-stone-600 mb-2">進貨品項</label>
+                                    <select value={selectedItem} onChange={(event) => setSelectedItem(event.target.value)} className="w-full border border-stone-300 rounded-xl px-3 py-3 bg-stone-50 font-medium">
+                                        {CATALOG.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
+                                    </select>
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-semibold text-stone-600 mb-2">下單數量</label>
+                                    <input type="number" min="1" value={qty} onChange={(event) => setQty(Number(event.target.value))} className="w-full border border-stone-300 rounded-xl px-3 py-3 bg-stone-50 font-black text-lg" />
+                                </div>
+                                <button onClick={handleCreateOrder} className="w-full bg-stone-900 hover:bg-stone-800 text-white font-bold py-3 rounded-xl shadow-sm transition">建立進貨單</button>
                             </div>
                         </div>
 
-                        <div className="bg-white rounded-2xl border border-stone-200 shadow-sm flex flex-col overflow-hidden">
-                            <div className="p-5 bg-stone-900 text-white">
-                                <h3 className="font-black tracking-wide">結帳清單</h3>
+                        <div className="bg-white rounded-2xl border border-stone-200 shadow-sm overflow-hidden">
+                            <div className="p-6 border-b border-stone-200 bg-stone-50">
+                                <h3 className="text-lg font-black text-stone-900">進貨下單清單</h3>
+                                <p className="text-sm text-stone-500 mt-1">{isHQ ? '總部可查看全部門市補貨單與自身進貨單。' : '門市只顯示自己的補貨單。'}</p>
                             </div>
-                            <div className="flex-1 p-4 overflow-y-auto custom-scrollbar bg-stone-50/60">
-                                {!cart.length ? (
-                                    <div className="text-center text-stone-400 mt-10">
-                                        <div className="inline-flex p-4 rounded-full bg-stone-100"><CartIcon /></div>
-                                        <p className="font-semibold mt-3">尚未加入任何品項</p>
-                                    </div>
-                                ) : (
-                                    <div className="space-y-3">
-                                        {cart.map((item) => (
-                                            <div key={item.id} className="p-3 rounded-xl border border-stone-200 bg-white flex items-center justify-between gap-3">
-                                                <div>
-                                                    <div className="font-bold text-stone-900">{item.name}</div>
-                                                    <div className="text-sm text-stone-500">{formatCurrency(item.price)}</div>
-                                                </div>
-                                                <div className="flex items-center gap-2">
-                                                    <button onClick={() => updateQty(item.id, -1)} className="w-8 h-8 rounded-full bg-stone-100 hover:bg-stone-200 font-bold">-</button>
-                                                    <span className="w-6 text-center font-black">{item.qty}</span>
-                                                    <button onClick={() => updateQty(item.id, 1)} className="w-8 h-8 rounded-full bg-red-100 hover:bg-red-200 text-red-700 font-bold">+</button>
-                                                </div>
-                                            </div>
+                            <div className="overflow-x-auto">
+                                <table className="w-full min-w-[820px] text-left">
+                                    <thead className="bg-stone-100 text-stone-600 text-sm">
+                                        <tr>
+                                            <th className="p-4 border-b border-stone-200 font-bold">單號 / 日期</th>
+                                            <th className="p-4 border-b border-stone-200 font-bold">下單角色</th>
+                                            <th className="p-4 border-b border-stone-200 font-bold">來源</th>
+                                            <th className="p-4 border-b border-stone-200 font-bold">品項</th>
+                                            <th className="p-4 border-b border-stone-200 font-bold text-right">數量</th>
+                                            <th className="p-4 border-b border-stone-200 font-bold text-center">狀態</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-stone-100">
+                                        {visibleOrders.map((order) => (
+                                            <tr key={order.id} className="hover:bg-stone-50">
+                                                <td className="p-4"><div className="font-black text-stone-900">{order.id}</div><div className="text-xs text-stone-500">{order.date}</div></td>
+                                                <td className="p-4 font-semibold text-stone-700">{order.requesterName}</td>
+                                                <td className="p-4 text-stone-600">{order.sourceType}</td>
+                                                <td className="p-4"><div className="font-bold text-stone-900">{order.item}</div><div className="text-xs text-stone-500">{order.itemId}</div></td>
+                                                <td className="p-4 text-right font-black text-stone-900">{order.qty}</td>
+                                                <td className="p-4 text-center"><span className="inline-flex px-3 py-1 rounded-full text-xs font-bold bg-stone-100 text-stone-700">{order.status}</span></td>
+                                            </tr>
                                         ))}
-                                    </div>
-                                )}
-                            </div>
-                            <div className="p-5 border-t border-stone-200 bg-white">
-                                <div className="flex justify-between items-center mb-4">
-                                    <span className="font-semibold text-stone-500">總金額</span>
-                                    <span className="text-3xl font-black text-red-700">{formatCurrency(totalAmount)}</span>
-                                </div>
-                                <button onClick={handleCheckout} disabled={!cart.length} className={`w-full py-4 rounded-xl font-bold text-white text-lg transition ${cart.length ? 'bg-red-700 hover:bg-red-800' : 'bg-stone-300 cursor-not-allowed'}`}>完成結帳</button>
+                                    </tbody>
+                                </table>
                             </div>
                         </div>
                     </div>
@@ -1313,15 +1563,18 @@
 
             const sidebarItems = [
                 { id: 'dashboard', icon: <ChartIcon />, label: '營運儀錶板' },
-                { id: 'pos', icon: <CartIcon />, label: '門市前台點餐', reqStore: true },
+                { id: 'pos', icon: <CartIcon />, label: '進貨下單' },
                 { id: 'inventory', icon: <BoxIcon />, label: '食安與進貨庫存' },
                 { id: 'shipping', icon: <TruckIcon />, label: '總部配送', reqHQ: true },
                 { id: 'scanner', icon: <ScanIcon />, label: '進貨掃描' },
                 { id: 'logs', icon: <StoreIcon />, label: '進貨明細' }
             ];
 
-            const mobileItems = sidebarItems.filter((item) => ['dashboard', 'inventory', 'scanner', 'logs'].includes(item.id));
-            const activeTitle = { dashboard: '營運儀錶板', pos: '門市前台點餐', inventory: '食安與進貨庫存', shipping: '總部配送', scanner: '進貨掃描', logs: '進貨明細' }[activeTab];
+            const mobileItems = sidebarItems.filter((item) => {
+                if (item.reqHQ && !isHQ) return false;
+                return ['dashboard', 'pos', 'inventory', 'shipping', 'scanner', 'logs'].includes(item.id);
+            });
+            const activeTitle = { dashboard: '營運儀錶板', pos: '進貨下單', inventory: '食安與進貨庫存', shipping: '總部配送', scanner: isHQ ? '出庫人員掃描' : '進貨掃描', logs: '進貨明細' }[activeTab];
 
             return (
                 <div className="flex h-screen bg-stone-100 text-stone-900 pb-[72px] md:pb-0 overflow-hidden relative">
@@ -1336,7 +1589,6 @@
                         <nav className="flex-1 py-4 overflow-y-auto custom-scrollbar">
                             {sidebarItems.map((item) => {
                                 if (item.reqHQ && !isHQ) return null;
-                                if (item.reqStore && isHQ) return null;
                                 return <button key={item.id} onClick={() => setActiveTab(item.id)} className={`w-full flex items-center gap-4 px-6 py-4 transition ${activeTab === item.id ? 'bg-stone-800 border-l-4 border-red-600 text-white' : 'text-stone-400 hover:bg-stone-800/70'}`}>{item.icon}<span className="font-medium">{item.label}</span></button>;
                             })}
                         </nav>
@@ -1352,9 +1604,9 @@
                                 </div>
                             </div>
                             <h2 className="hidden md:block text-2xl font-black text-stone-900">{activeTitle}</h2>
-                            <div className="flex items-center gap-2 bg-stone-100 border border-stone-200 rounded-full px-3 py-2">
+                            <div className={`flex items-center gap-2 rounded-full px-3 py-2 border ${isHQ ? 'bg-stone-100 border-stone-200 text-stone-800' : 'bg-amber-800 border-amber-900 text-amber-50'}`}>
                                 <UserIcon />
-                                <select value={currentRole} onChange={(event) => { setCurrentRole(event.target.value); if ((activeTab === 'shipping' || activeTab === 'pos') && event.target.value === 'hq') setActiveTab('dashboard'); if (activeTab === 'shipping' && event.target.value !== 'hq') setActiveTab('dashboard'); }} className="bg-transparent outline-none font-bold text-sm text-stone-800">
+                                <select value={currentRole} onChange={(event) => { setCurrentRole(event.target.value); if (activeTab === 'shipping' && event.target.value !== 'hq') setActiveTab('dashboard'); }} className={`bg-transparent outline-none font-bold text-sm ${isHQ ? 'text-stone-800' : 'text-amber-50'}`}>
                                     {STORES.map((store) => <option key={store.id} value={store.id}>{store.name}</option>)}
                                 </select>
                             </div>
@@ -1366,15 +1618,15 @@
                                 {activeTab === 'inventory' && <InventoryView />}
                                 {activeTab === 'shipping' && isHQ && <ShippingView />}
                                 {activeTab === 'scanner' && <ScannerView />}
-                                {activeTab === 'pos' && currentRole !== 'hq' && <POSView />}
+                                {activeTab === 'pos' && <OrderView />}
                                 {activeTab === 'logs' && <MovementLogsView />}
                             </div>
                         </div>
                     </main>
 
-                    <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-stone-900 shadow-[0_-6px_24px_rgba(0,0,0,0.18)] z-50 flex justify-around p-2 pb-safe">
+                    <nav className="md:hidden fixed bottom-0 left-0 right-0 bg-stone-900 shadow-[0_-6px_24px_rgba(0,0,0,0.18)] z-50 flex overflow-x-auto custom-scrollbar px-2 py-2 gap-1 pb-safe">
                         {mobileItems.map((item) => (
-                            <button key={item.id} onClick={() => setActiveTab(item.id)} className={`flex flex-col items-center gap-1 p-2 ${activeTab === item.id ? 'text-red-500' : 'text-stone-400'}`}>
+                            <button key={item.id} onClick={() => setActiveTab(item.id)} className={`flex flex-col items-center gap-1 p-2 min-w-[72px] ${activeTab === item.id ? 'text-red-500' : 'text-stone-400'}`}>
                                 {item.icon}
                                 <span className="text-[10px] font-medium">{item.label}</span>
                             </button>
