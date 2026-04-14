@@ -108,9 +108,11 @@
         );
 
         const STORES = [
-            { id: 'hq', name: '總部', address: '台南市東山區中興路 1 號' },
-            { id: 'store-tn', name: '台南東山門市', address: '台南市東山區中興路 88 號' },
-            { id: 'store-ks', name: '高雄巨蛋門市', address: '高雄市左營區博愛二路 777 號' }
+            { id: 'hq', name: '營運總部(管理員)', address: '台中市西屯區台灣大道 100 號' },
+            { id: 'store-hc', name: '新竹師大', address: '新竹市東區大學路 18 號' },
+            { id: 'store-ch-erlin', name: '彰化二林', address: '彰化縣二林鎮中正路 88 號' },
+            { id: 'store-ch-pitou', name: '彰化埤頭', address: '彰化縣埤頭鄉斗苑西路 66 號' },
+            { id: 'store-kh', name: '高雄師大', address: '高雄市苓雅區和平一路 116 號' }
         ];
 
         const CATALOG = [
@@ -183,23 +185,23 @@
         };
 
         const TYPE_META = {
-            sale: { label: '銷售出貨', movement: 'out', color: 'bg-red-100 text-red-700 border-red-200' },
-            shipment_out: { label: '總部出貨', movement: 'out', color: 'bg-amber-100 text-amber-700 border-amber-200' },
+            sale: { label: '門市銷售', movement: 'out', color: 'bg-red-100 text-red-700 border-red-200' },
             shipment_in: { label: '門市進貨', movement: 'in', color: 'bg-blue-100 text-blue-700 border-blue-200' },
-            manual_in: { label: '手動入庫', movement: 'in', color: 'bg-emerald-100 text-emerald-700 border-emerald-200' },
-            manual_out: { label: '手動出庫', movement: 'out', color: 'bg-stone-200 text-stone-700 border-stone-300' }
+            manual_in: { label: '手動入庫', movement: 'in', color: 'bg-emerald-100 text-emerald-700 border-emerald-200' }
         };
 
         const createInventorySeed = () => CATALOG.map((item, index) => ({
             ...item,
             batches: [
                 { store: 'hq', qty: 260 - (index * 12), exp: addDays(18 + index) },
-                { store: 'store-tn', qty: 75 + (index * 7), exp: addDays(5 + index) },
-                { store: 'store-ks', qty: 58 + (index * 6), exp: addDays(6 + index) }
+                { store: 'store-hc', qty: 75 + (index * 7), exp: addDays(5 + index) },
+                { store: 'store-ch-erlin', qty: 68 + (index * 6), exp: addDays(6 + index) },
+                { store: 'store-ch-pitou', qty: 64 + (index * 5), exp: addDays(7 + index) },
+                { store: 'store-kh', qty: 58 + (index * 6), exp: addDays(8 + index) }
             ]
         }));
 
-        const buildLogRecord = ({ id, date, time, store, item, qty, type, note = '', counterpartyStore = '' }) => ({
+        const buildLogRecord = ({ id, date, time, store, item, qty, type, note = '', counterpartyStore = '', expiryDate = '' }) => ({
             id,
             date,
             time,
@@ -215,7 +217,8 @@
             costAmount: item.cost * qty,
             profit: type === 'sale' ? (item.price - item.cost) * qty : 0,
             note,
-            counterpartyStore
+            counterpartyStore,
+            expiryDate
         });
 
         const generateHistoricalLogs = () => {
@@ -247,11 +250,8 @@
                     });
 
                     const inItem = CATALOG[(storeIndex + monthOffset) % CATALOG.length];
-                    const outItem = CATALOG[(storeIndex + monthOffset + 2) % CATALOG.length];
                     const inboundQty = 12 + ((monthOffset + storeIndex) % 5) * 4;
-                    const outboundQty = 5 + ((monthOffset + storeIndex) % 4) * 3;
                     const inDate = formatDate(new Date(monthDate.getFullYear(), monthDate.getMonth(), Math.min(6, daysInMonth)));
-                    const outDate = formatDate(new Date(monthDate.getFullYear(), monthDate.getMonth(), Math.min(21, daysInMonth)));
 
                     logs.push(buildLogRecord({
                         id: nextId++,
@@ -261,18 +261,8 @@
                         item: inItem,
                         qty: inboundQty,
                         type: 'manual_in',
-                        note: '盤點補貨'
-                    }));
-
-                    logs.push(buildLogRecord({
-                        id: nextId++,
-                        date: outDate,
-                        time: '19:10',
-                        store: store.id,
-                        item: outItem,
-                        qty: outboundQty,
-                        type: 'manual_out',
-                        note: '報廢調整'
+                        note: '盤點補貨',
+                        expiryDate: formatDate(new Date(monthDate.getFullYear(), monthDate.getMonth(), Math.min(13, daysInMonth)))
                     }));
                 });
             });
@@ -371,7 +361,7 @@
                 {
                     id: 'SHP-202604-001',
                     date: formatDate(),
-                    targetStore: 'store-ks',
+                    targetStore: 'store-kh',
                     itemId: 'P002',
                     item: '甜不辣',
                     qty: 40,
@@ -382,7 +372,7 @@
                 {
                     id: 'SHP-202604-002',
                     date: addDays(-3),
-                    targetStore: 'store-tn',
+                    targetStore: 'store-hc',
                     itemId: 'P005',
                     item: '鴨翅',
                     qty: 28,
@@ -394,9 +384,12 @@
             const [toastMessage, setToastMessage] = useState('');
             const [labelModal, setLabelModal] = useState(null);
             const [dashboardMonthKey, setDashboardMonthKey] = useState(toYearMonth(formatDate()));
+            const [dashboardDate, setDashboardDate] = useState(formatDate().replaceAll('/', '-'));
+            const [dashboardStoreFilter, setDashboardStoreFilter] = useState('all');
             const [logsMonthKey, setLogsMonthKey] = useState(toYearMonth(formatDate()));
             const [logsStoreFilter, setLogsStoreFilter] = useState('all');
             const [logsQtyFilter, setLogsQtyFilter] = useState('all');
+            const [itemAnalysisStoreFilter, setItemAnalysisStoreFilter] = useState('all');
 
             const isHQ = currentRole === 'hq';
             const currentMonthKey = toYearMonth(formatDate());
@@ -418,10 +411,21 @@
 
             const getVisibleStock = (item) => getStockForStore(item, isHQ ? 'all' : currentRole);
 
-            const getExpiryStatus = (item, storeId) => {
-                const targetBatches = storeId === 'all'
+            const getBatchesForStore = (item, storeId) => (
+                storeId === 'all'
                     ? item.batches.filter((batch) => batch.qty > 0)
-                    : item.batches.filter((batch) => batch.store === storeId && batch.qty > 0);
+                    : item.batches.filter((batch) => batch.store === storeId && batch.qty > 0)
+            );
+
+            const getEarliestExpiryDate = (item, storeId) => {
+                const targetBatches = getBatchesForStore(item, storeId);
+                if (!targetBatches.length) return '-';
+                const earliest = targetBatches.reduce((current, batch) => parseDateString(batch.exp) < parseDateString(current.exp) ? batch : current, targetBatches[0]);
+                return earliest.exp;
+            };
+
+            const getExpiryStatus = (item, storeId) => {
+                const targetBatches = getBatchesForStore(item, storeId);
 
                 if (!targetBatches.length) {
                     return { level: 'safe', label: '無存貨', color: 'text-stone-500 bg-stone-100 border border-stone-200' };
@@ -441,7 +445,7 @@
                     return { level: 'warning', label: `即將到期 ${earliest.exp}`, color: 'text-orange-700 bg-orange-100 border border-orange-200' };
                 }
 
-                return { level: 'safe', label: `安全庫存 ${earliest.exp}`, color: 'text-green-700 bg-green-100 border border-green-200' };
+                return { level: 'safe', label: `效期正常 ${earliest.exp}`, color: 'text-green-700 bg-green-100 border border-green-200' };
             };
 
             const changeInventoryQty = (items, itemId, storeId, delta, expDate) => items.map((item) => {
@@ -469,7 +473,7 @@
                 setLogs((previous) => [entry, ...previous].sort(compareDateTimeDesc));
             };
 
-            const createLiveLog = ({ itemId, qty, store, type, note = '', counterpartyStore = '' }) => {
+            const createLiveLog = ({ itemId, qty, store, type, note = '', counterpartyStore = '', expiryDate = '' }) => {
                 const item = getItemById(itemId);
                 return buildLogRecord({
                     id: Date.now() + Math.random(),
@@ -480,7 +484,8 @@
                     qty,
                     type,
                     note,
-                    counterpartyStore
+                    counterpartyStore,
+                    expiryDate
                 });
             };
 
@@ -508,35 +513,71 @@
                 if (logsStoreFilter !== 'all' && !STORES.some((store) => store.id === logsStoreFilter)) setLogsStoreFilter('all');
             }, [currentRole, isHQ]);
 
+            useEffect(() => {
+                if (currentRole === 'hq' && activeTab === 'pos') {
+                    setActiveTab('dashboard');
+                }
+            }, [currentRole, activeTab]);
+
+            const dashboardDateLabel = dashboardDate.replaceAll('-', '/');
+
             const dashboardStats = useMemo(() => {
-                const scopedSales = logs.filter((log) => log.type === 'sale' && toYearMonth(log.date) === currentMonthKey && (isHQ || log.store === currentRole));
+                const scopedSales = logs.filter((log) => (
+                    log.type === 'sale'
+                    && log.date === dashboardDateLabel
+                    && (dashboardStoreFilter === 'all' || log.store === dashboardStoreFilter)
+                ));
                 const salesQty = sum(scopedSales, 'qty');
                 const revenue = sum(scopedSales, 'salesAmount');
                 const profit = sum(scopedSales, 'profit');
 
-                const visibleItems = inventory.filter((item) => getVisibleStock(item) > 0);
-                const lowStockCount = visibleItems.filter((item) => getVisibleStock(item) < 50).length;
+                const inventoryScope = dashboardStoreFilter === 'all' ? 'all' : dashboardStoreFilter;
+                const visibleItems = inventory.filter((item) => getStockForStore(item, inventoryScope) > 0);
+                const lowStockCount = visibleItems.filter((item) => getStockForStore(item, inventoryScope) < 50).length;
                 const foodSafetyAlerts = visibleItems.filter((item) => {
-                    const status = getExpiryStatus(item, isHQ ? 'all' : currentRole);
+                    const status = getExpiryStatus(item, inventoryScope);
                     return status.level === 'warning' || status.level === 'expired';
                 }).length;
 
                 return { salesQty, revenue, profit, lowStockCount, foodSafetyAlerts };
-            }, [logs, inventory, currentMonthKey, currentRole, isHQ]);
+            }, [logs, inventory, dashboardDateLabel, dashboardStoreFilter]);
 
             const trendData = useMemo(() => {
                 return Array.from({ length: 7 }, (_, index) => {
-                    const date = new Date();
+                    const date = new Date(`${dashboardDate}T00:00:00`);
                     date.setDate(date.getDate() - (6 - index));
                     const dateString = formatDate(date);
-                    const dayLogs = logs.filter((log) => log.type === 'sale' && log.date === dateString && (isHQ || log.store === currentRole));
+                    const dayLogs = logs.filter((log) => (
+                        log.type === 'sale'
+                        && log.date === dateString
+                        && (dashboardStoreFilter === 'all' || log.store === dashboardStoreFilter)
+                    ));
                     return { label: `${date.getMonth() + 1}/${date.getDate()}`, value: sum(dayLogs, 'qty') };
                 });
-            }, [logs, currentRole, isHQ]);
+            }, [logs, dashboardDate, dashboardStoreFilter]);
+
+            const dashboardTopStores = useMemo(() => {
+                const grouped = {};
+                logs.filter((log) => log.type === 'sale' && log.date === dashboardDateLabel).forEach((log) => {
+                    if (!grouped[log.store]) {
+                        grouped[log.store] = { storeId: log.store, revenue: 0, qty: 0 };
+                    }
+                    grouped[log.store].revenue += log.salesAmount;
+                    grouped[log.store].qty += log.qty;
+                });
+
+                return Object.values(grouped)
+                    .sort((a, b) => b.revenue - a.revenue)
+                    .slice(0, 3);
+            }, [logs, dashboardDateLabel]);
 
             const itemAnalysisRows = useMemo(() => {
                 const grouped = {};
-                logs.filter((log) => log.type === 'sale' && toYearMonth(log.date) === dashboardMonthKey && (isHQ || log.store === currentRole)).forEach((log) => {
+                logs.filter((log) => (
+                    log.type === 'sale'
+                    && toYearMonth(log.date) === dashboardMonthKey
+                    && (itemAnalysisStoreFilter === 'all' || log.store === itemAnalysisStoreFilter)
+                )).forEach((log) => {
                     if (!grouped[log.itemId]) {
                         grouped[log.itemId] = { itemId: log.itemId, item: log.item, qty: 0, revenue: 0, cost: 0, profit: 0 };
                     }
@@ -546,7 +587,7 @@
                     grouped[log.itemId].profit += log.profit;
                 });
                 return Object.values(grouped).sort((a, b) => b.revenue - a.revenue);
-            }, [logs, dashboardMonthKey, currentRole, isHQ]);
+            }, [logs, dashboardMonthKey, itemAnalysisStoreFilter]);
 
             const itemAnalysisSummary = useMemo(() => ({
                 qty: sum(itemAnalysisRows, 'qty'),
@@ -555,10 +596,11 @@
                 profit: sum(itemAnalysisRows, 'profit')
             }), [itemAnalysisRows]);
 
-            const logStoreOptions = isHQ ? [{ id: 'all', name: '全部門市' }, ...STORES] : [{ id: currentRole, name: getStoreName(currentRole) }];
+            const logStoreOptions = isHQ ? [{ id: 'all', name: '全部門市' }, ...STORES.filter((store) => store.id !== 'hq')] : [{ id: currentRole, name: getStoreName(currentRole) }];
 
-            const filteredMovementLogs = useMemo(() => {
+            const filteredInboundLogs = useMemo(() => {
                 return logs.filter((log) => {
+                    if (!['shipment_in', 'manual_in'].includes(log.type)) return false;
                     if (!isHQ && log.store !== currentRole) return false;
                     if (toYearMonth(log.date) !== logsMonthKey) return false;
                     if (logsStoreFilter !== 'all' && log.store !== logsStoreFilter) return false;
@@ -569,19 +611,28 @@
                 }).sort(compareDateTimeDesc);
             }, [logs, logsMonthKey, logsStoreFilter, logsQtyFilter, currentRole, isHQ]);
 
-            const movementSummary = useMemo(() => {
-                const inbound = filteredMovementLogs.filter((log) => log.movement === 'in');
-                const outbound = filteredMovementLogs.filter((log) => log.movement === 'out');
-                return { total: filteredMovementLogs.length, inboundQty: sum(inbound, 'qty'), outboundQty: sum(outbound, 'qty') };
-            }, [filteredMovementLogs]);
+            const inboundSummary = useMemo(() => {
+                const expiringSoonCount = filteredInboundLogs.filter((log) => {
+                    const warningDate = new Date();
+                    warningDate.setDate(warningDate.getDate() + 2);
+                    const expiryDate = log.expiryDate || getEarliestExpiryDate(getItemById(log.itemId), log.store);
+                    return expiryDate !== '-' && parseDateString(expiryDate) <= warningDate;
+                }).length;
+
+                return {
+                    total: filteredInboundLogs.length,
+                    inboundQty: sum(filteredInboundLogs, 'qty'),
+                    expiringSoonCount
+                };
+            }, [filteredInboundLogs, inventory]);
 
             const exportItemAnalysis = () => {
                 downloadExcelReport({
-                    filename: `品項分析_${dashboardMonthKey}_${isHQ ? '全部門市' : getStoreName(currentRole)}`,
+                    filename: `品項分析_${dashboardMonthKey}_${itemAnalysisStoreFilter === 'all' ? '全部門市' : getStoreName(itemAnalysisStoreFilter)}`,
                     title: '品項分析報表',
                     subtitleLines: [
                         `期間：${dashboardMonthKey}`,
-                        `範圍：${isHQ ? '全部門市' : getStoreName(currentRole)}`,
+                        `範圍：${itemAnalysisStoreFilter === 'all' ? '全部門市' : getStoreName(itemAnalysisStoreFilter)}`,
                         `總銷售額：${formatCurrency(itemAnalysisSummary.revenue)}`,
                         `總成本：${formatCurrency(itemAnalysisSummary.cost)}`,
                         `總利潤：${formatCurrency(itemAnalysisSummary.profit)}`
@@ -594,16 +645,16 @@
 
             const exportMovementLogs = () => {
                 downloadExcelReport({
-                    filename: `進出貨明細_${logsMonthKey}_${logsStoreFilter === 'all' ? '全部門市' : getStoreName(logsStoreFilter)}`,
-                    title: '進出貨明細報表',
+                    filename: `進貨明細_${logsMonthKey}_${logsStoreFilter === 'all' ? '全部門市' : getStoreName(logsStoreFilter)}`,
+                    title: '進貨明細報表',
                     subtitleLines: [
                         `期間：${logsMonthKey}`,
                         `門市：${logsStoreFilter === 'all' ? '全部門市' : getStoreName(logsStoreFilter)}`,
                         `數量篩選：${logsQtyFilter === 'all' ? '全部' : logsQtyFilter}`,
-                        `筆數：${movementSummary.total}`
+                        `筆數：${inboundSummary.total}`
                     ],
-                    headers: ['日期', '時間', '門市', '類型', '品項', '數量', '單位成本', '單位售價', '備註'],
-                    rows: filteredMovementLogs.map((log) => [
+                    headers: ['日期', '時間', '門市', '類型', '品項', '數量', '單位成本', '最近效期', '備註'],
+                    rows: filteredInboundLogs.map((log) => [
                         log.date,
                         log.time,
                         getStoreName(log.store),
@@ -611,22 +662,32 @@
                         log.item,
                         log.qty,
                         log.unitCost,
-                        log.unitPrice,
+                        log.expiryDate || getEarliestExpiryDate(getItemById(log.itemId), log.store),
                         log.note || (log.counterpartyStore ? `對象：${getStoreName(log.counterpartyStore)}` : '')
                     ])
                 });
-                showToast('進出貨明細 Excel 報表已下載。');
+                showToast('進貨明細 Excel 報表已下載。');
             };
 
             const exportInventory = () => {
+                const storeHeaders = STORES.filter((store) => store.id !== 'hq').map((store) => store.name);
                 downloadExcelReport({
                     filename: `庫存總表_${formatDate().replaceAll('/', '-')}`,
-                    title: '庫存總表',
+                    title: '食安與進貨庫存總表',
                     subtitleLines: [`產出時間：${formatDate()} ${formatTime()}`],
-                    headers: ['品項編號', '品項名稱', '總部', '台南門市', '高雄門市', '總庫存', '成本', '售價'],
-                    rows: inventory.map((item) => [item.id, item.name, getStockForStore(item, 'hq'), getStockForStore(item, 'store-tn'), getStockForStore(item, 'store-ks'), getStockForStore(item, 'all'), item.cost, item.price])
+                    headers: ['品項編號', '品項名稱', '總部', ...storeHeaders, '總庫存', '最近進貨效期', '成本', '售價'],
+                    rows: inventory.map((item) => [
+                        item.id,
+                        item.name,
+                        getStockForStore(item, 'hq'),
+                        ...STORES.filter((store) => store.id !== 'hq').map((store) => getStockForStore(item, store.id)),
+                        getStockForStore(item, 'all'),
+                        getEarliestExpiryDate(item, 'all'),
+                        item.cost,
+                        item.price
+                    ])
                 });
-                showToast('庫存總表 Excel 已下載。');
+                showToast('食安與進貨庫存 Excel 已下載。');
             };
 
             const exportShipmentLabel = (shipment) => {
@@ -643,21 +704,48 @@
 
             const DashboardView = () => (
                 <div className="space-y-6">
+                    <div className="bg-white rounded-2xl border border-stone-200 p-6 shadow-sm">
+                        <div className="flex flex-col xl:flex-row xl:items-center xl:justify-between gap-4">
+                            <div>
+                                <h3 className="text-lg font-black text-stone-900">營運儀錶板篩選</h3>
+                                <p className="text-sm text-stone-500 mt-1">可用年月日查看指定門市的營運表現。</p>
+                            </div>
+                            <div className="flex flex-col md:flex-row gap-2">
+                                <input
+                                    type="date"
+                                    value={dashboardDate}
+                                    onChange={(event) => setDashboardDate(event.target.value)}
+                                    className="border border-stone-300 rounded-lg px-3 py-2 bg-white font-medium text-stone-700"
+                                />
+                                <select
+                                    value={dashboardStoreFilter}
+                                    onChange={(event) => setDashboardStoreFilter(event.target.value)}
+                                    className="border border-stone-300 rounded-lg px-3 py-2 bg-white font-medium text-stone-700"
+                                >
+                                    <option value="all">全部門市</option>
+                                    {STORES.filter((store) => store.id !== 'hq').map((store) => (
+                                        <option key={store.id} value={store.id}>{store.name}</option>
+                                    ))}
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+
                     <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
                         <div className="bg-white rounded-2xl border border-stone-200 p-6 shadow-sm border-l-4 border-l-red-600">
-                            <p className="text-sm text-stone-500 font-semibold">本月銷售份數</p>
+                            <p className="text-sm text-stone-500 font-semibold">當日銷售份數</p>
                             <p className="text-3xl font-black text-stone-900 mt-2">{dashboardStats.salesQty}</p>
                         </div>
                         <div className="bg-white rounded-2xl border border-stone-200 p-6 shadow-sm border-l-4 border-l-blue-600">
-                            <p className="text-sm text-stone-500 font-semibold">本月銷售額</p>
+                            <p className="text-sm text-stone-500 font-semibold">當日營業額</p>
                             <p className="text-3xl font-black text-stone-900 mt-2">{formatCurrency(dashboardStats.revenue)}</p>
                         </div>
                         <div className="bg-white rounded-2xl border border-stone-200 p-6 shadow-sm border-l-4 border-l-emerald-600">
-                            <p className="text-sm text-stone-500 font-semibold">本月毛利</p>
+                            <p className="text-sm text-stone-500 font-semibold">當日毛利</p>
                             <p className="text-3xl font-black text-stone-900 mt-2">{formatCurrency(dashboardStats.profit)}</p>
                         </div>
                         <div className="bg-white rounded-2xl border border-stone-200 p-6 shadow-sm border-l-4 border-l-amber-600">
-                            <p className="text-sm text-stone-500 font-semibold">庫存 / 食安提醒</p>
+                            <p className="text-sm text-stone-500 font-semibold">庫存不足 / 效期提醒</p>
                             <p className="text-3xl font-black text-stone-900 mt-2">{dashboardStats.lowStockCount} / {dashboardStats.foodSafetyAlerts}</p>
                         </div>
                     </div>
@@ -666,12 +754,36 @@
                         <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 mb-4">
                             <div>
                                 <h3 className="text-lg font-black text-stone-900 flex items-center gap-2"><ChartIcon />近七日門市銷售份數趨勢</h3>
-                                <p className="text-sm text-stone-500 mt-1">這一區保留份數走勢，不改成品項金額統計。</p>
+                                <p className="text-sm text-stone-500 mt-1">以所選日期為終點，回看近七天份數走勢。</p>
                             </div>
-                            <span className="px-3 py-1.5 rounded-full text-xs font-bold bg-stone-100 text-stone-700 border border-stone-200">{isHQ ? '全部門市' : getStoreName(currentRole)}</span>
+                            <span className="px-3 py-1.5 rounded-full text-xs font-bold bg-stone-100 text-stone-700 border border-stone-200">{dashboardStoreFilter === 'all' ? '全部門市' : getStoreName(dashboardStoreFilter)}</span>
                         </div>
                         <div className="h-[260px]">
                             <TrendLineChart data={trendData} />
+                        </div>
+                    </div>
+
+                    <div className="bg-white rounded-2xl border border-stone-200 p-6 shadow-sm">
+                        <div className="flex items-center justify-between gap-3 mb-4">
+                            <div>
+                                <h3 className="text-lg font-black text-stone-900">當日營業額 Top 3</h3>
+                                <p className="text-sm text-stone-500 mt-1">{dashboardDateLabel} 全門市排行</p>
+                            </div>
+                        </div>
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                            {dashboardTopStores.length === 0 && (
+                                <div className="md:col-span-3 rounded-xl border border-dashed border-stone-300 p-8 text-center text-stone-500 font-medium">
+                                    這一天沒有銷售資料。
+                                </div>
+                            )}
+                            {dashboardTopStores.map((store, index) => (
+                                <div key={store.storeId} className="rounded-2xl border border-stone-200 bg-stone-50 p-5">
+                                    <div className="text-xs font-black text-red-700">TOP {index + 1}</div>
+                                    <div className="text-xl font-black text-stone-900 mt-2">{getStoreName(store.storeId)}</div>
+                                    <div className="text-sm text-stone-500 mt-2">銷售份數 {store.qty}</div>
+                                    <div className="text-2xl font-black text-stone-900 mt-3">{formatCurrency(store.revenue)}</div>
+                                </div>
+                            ))}
                         </div>
                     </div>
 
@@ -683,6 +795,16 @@
                                     <p className="text-sm text-stone-500 mt-1">依年月份查看每個品項的銷售額、成本、利潤，並可直接下載 Excel。</p>
                                 </div>
                                 <div className="flex flex-col sm:flex-row gap-2">
+                                    <select
+                                        value={itemAnalysisStoreFilter}
+                                        onChange={(event) => setItemAnalysisStoreFilter(event.target.value)}
+                                        className="border border-stone-300 rounded-lg px-3 py-2 bg-white font-medium text-stone-700"
+                                    >
+                                        <option value="all">全部門市</option>
+                                        {STORES.filter((store) => store.id !== 'hq').map((store) => (
+                                            <option key={store.id} value={store.id}>{store.name}</option>
+                                        ))}
+                                    </select>
                                     <YearMonthPicker value={dashboardMonthKey} options={monthOptions} onChange={setDashboardMonthKey} />
                                     <button onClick={exportItemAnalysis} className="inline-flex items-center justify-center gap-2 bg-stone-900 hover:bg-stone-800 text-white font-bold px-4 py-2 rounded-xl shadow-sm transition">
                                         <DownloadIcon />下載 Excel
@@ -741,23 +863,25 @@
                 <div className="bg-white rounded-2xl border border-stone-200 shadow-sm overflow-hidden">
                     <div className="p-6 border-b border-stone-200 bg-stone-50 flex flex-col md:flex-row md:items-center md:justify-between gap-3">
                         <div>
-                            <h3 className="text-lg font-black text-stone-900 flex items-center gap-2"><ShieldIcon />庫存與食安總覽</h3>
-                            <p className="text-sm text-stone-500 mt-1">可查看各門市現有庫存與最近效期。</p>
+                            <h3 className="text-lg font-black text-stone-900 flex items-center gap-2"><ShieldIcon />食安與進貨庫存總覽</h3>
+                            <p className="text-sm text-stone-500 mt-1">效期直接綁定各門市進貨批次，不再用安全庫存字樣表示效期。</p>
                         </div>
                         <button onClick={exportInventory} className="inline-flex items-center justify-center gap-2 bg-red-700 hover:bg-red-800 text-white font-bold px-4 py-2 rounded-xl shadow-sm transition">
                             <DownloadIcon />匯出庫存 Excel
                         </button>
                     </div>
                     <div className="overflow-x-auto">
-                        <table className="w-full min-w-[900px] text-left">
+                        <table className="w-full min-w-[1100px] text-left">
                             <thead className="bg-stone-100 text-stone-600 text-sm">
                                 <tr>
                                     <th className="p-4 border-b border-stone-200 font-bold">品項</th>
                                     <th className="p-4 border-b border-stone-200 font-bold">類別</th>
                                     <th className="p-4 border-b border-stone-200 font-bold text-right">總部</th>
-                                    <th className="p-4 border-b border-stone-200 font-bold text-right">台南門市</th>
-                                    <th className="p-4 border-b border-stone-200 font-bold text-right">高雄門市</th>
+                                    {STORES.filter((store) => store.id !== 'hq').map((store) => (
+                                        <th key={store.id} className="p-4 border-b border-stone-200 font-bold text-right">{store.name}</th>
+                                    ))}
                                     <th className="p-4 border-b border-stone-200 font-bold text-right">總量</th>
+                                    <th className="p-4 border-b border-stone-200 font-bold text-center">最近進貨效期</th>
                                     <th className="p-4 border-b border-stone-200 font-bold text-center">效期狀態</th>
                                 </tr>
                             </thead>
@@ -769,9 +893,11 @@
                                             <td className="p-4"><div className="font-bold text-stone-900">{item.name}</div><div className="text-xs text-stone-500">{item.id}</div></td>
                                             <td className="p-4 text-stone-600">{item.category}</td>
                                             <td className="p-4 text-right font-semibold">{getStockForStore(item, 'hq')}</td>
-                                            <td className="p-4 text-right font-semibold">{getStockForStore(item, 'store-tn')}</td>
-                                            <td className="p-4 text-right font-semibold">{getStockForStore(item, 'store-ks')}</td>
+                                            {STORES.filter((store) => store.id !== 'hq').map((store) => (
+                                                <td key={store.id} className="p-4 text-right font-semibold">{getStockForStore(item, store.id)}</td>
+                                            ))}
                                             <td className="p-4 text-right font-black text-stone-900">{getStockForStore(item, 'all')}</td>
+                                            <td className="p-4 text-center font-semibold text-stone-700">{getEarliestExpiryDate(item, isHQ ? 'all' : currentRole)}</td>
                                             <td className="p-4 text-center"><span className={`inline-flex px-3 py-1 rounded-full text-xs font-bold ${expiryStatus.color}`}>{expiryStatus.label}</span></td>
                                         </tr>
                                     );
@@ -783,7 +909,7 @@
             );
 
             const ShippingView = () => {
-                const [selectedStore, setSelectedStore] = useState('store-ks');
+                const [selectedStore, setSelectedStore] = useState('store-kh');
                 const [selectedItem, setSelectedItem] = useState(CATALOG[0].id);
                 const [qty, setQty] = useState(20);
 
@@ -807,7 +933,6 @@
 
                     setInventory((previous) => changeInventoryQty(previous, item.id, 'hq', -qty));
                     setShipments((previous) => [shipment, ...previous]);
-                    appendLog(createLiveLog({ itemId: item.id, qty, store: 'hq', type: 'shipment_out', note: `配送至 ${getStoreName(selectedStore)}`, counterpartyStore: selectedStore }));
                     setLabelModal(shipment);
                     showToast(`已建立配送單 ${shipment.id}。`);
                 };
@@ -893,28 +1018,25 @@
 
                     setInventory((previous) => changeInventoryQty(previous, shipment.itemId, currentRole, shipment.qty, shipment.expDate));
                     setShipments((previous) => previous.map((entry) => entry.id === shipment.id ? { ...entry, status: 'received' } : entry));
-                    appendLog(createLiveLog({ itemId: shipment.itemId, qty: shipment.qty, store: currentRole, type: 'shipment_in', note: `由總部配送 ${shipment.id}`, counterpartyStore: 'hq' }));
+                    appendLog(createLiveLog({ itemId: shipment.itemId, qty: shipment.qty, store: currentRole, type: 'shipment_in', note: `由總部配送 ${shipment.id}`, counterpartyStore: 'hq', expiryDate: shipment.expDate }));
                     showToast(`已完成配送單 ${shipment.id} 點收。`);
                 };
 
-                const handleManualMovement = (type) => {
+                const handleManualInbound = () => {
                     const item = getItemById(selectedItem);
                     if (!item) return;
                     if (qty <= 0) return showToast('數量必須大於 0。');
 
-                    const currentStock = getStockForStore(item, currentRole);
-                    if (type === 'manual_out' && qty > currentStock) return showToast(`庫存不足，目前只有 ${currentStock}。`);
-
-                    setInventory((previous) => changeInventoryQty(previous, item.id, currentRole, type === 'manual_in' ? qty : -qty, addDays(8)));
-                    appendLog(createLiveLog({ itemId: item.id, qty, store: currentRole, type, note: type === 'manual_in' ? '現場補貨' : '現場出庫' }));
-                    showToast(type === 'manual_in' ? '已完成手動入庫。' : '已完成手動出庫。');
+                    setInventory((previous) => changeInventoryQty(previous, item.id, currentRole, qty, addDays(8)));
+                    appendLog(createLiveLog({ itemId: item.id, qty, store: currentRole, type: 'manual_in', note: '現場補貨', expiryDate: addDays(8) }));
+                    showToast('已完成手動入庫。');
                 };
 
                 return (
                     <div className="max-w-5xl mx-auto grid grid-cols-1 lg:grid-cols-[360px_minmax(0,1fr)] gap-6">
                         <div className="bg-white rounded-2xl border border-stone-200 shadow-sm overflow-hidden">
                             <div className="bg-stone-900 text-white p-5 border-b-4 border-red-700">
-                                <h3 className="font-black tracking-wide flex items-center gap-2"><ScanIcon />門市進出庫掃描</h3>
+                                <h3 className="font-black tracking-wide flex items-center gap-2"><ScanIcon />門市進貨掃描</h3>
                             </div>
                             <div className="relative h-64 bg-stone-950 overflow-hidden flex items-center justify-center">
                                 <img src="https://images.unsplash.com/photo-1588168333986-5078d3ae3976?auto=format&fit=crop&q=80&w=800" alt="scanner" className="absolute inset-0 w-full h-full object-cover opacity-25 grayscale" />
@@ -933,8 +1055,7 @@
                             <div className="flex bg-stone-100 rounded-xl p-1 mb-6">
                                 {[
                                     { id: 'receive', label: '點收配送' },
-                                    { id: 'in', label: '手動入庫' },
-                                    { id: 'out', label: '手動出庫' }
+                                    { id: 'in', label: '手動入庫' }
                                 ].map((mode) => (
                                     <button key={mode.id} onClick={() => setScanMode(mode.id)} className={`flex-1 py-2 rounded-lg font-bold text-sm transition ${scanMode === mode.id ? 'bg-white text-stone-900 shadow-sm' : 'text-stone-500'}`}>{mode.label}</button>
                                 ))}
@@ -963,7 +1084,7 @@
                                         <label className="block text-sm font-semibold text-stone-600 mb-2">數量</label>
                                         <input type="number" min="1" value={qty} onChange={(event) => setQty(Number(event.target.value))} className="w-full border border-stone-300 rounded-xl px-3 py-3 font-black text-lg text-center" />
                                     </div>
-                                    <button onClick={() => handleManualMovement(scanMode === 'in' ? 'manual_in' : 'manual_out')} className={`w-full py-4 rounded-xl font-bold text-white text-lg shadow-sm transition ${scanMode === 'in' ? 'bg-emerald-600 hover:bg-emerald-700' : 'bg-red-700 hover:bg-red-800'}`}>{scanMode === 'in' ? '確認入庫' : '確認出庫'}</button>
+                                    <button onClick={handleManualInbound} className="w-full py-4 rounded-xl font-bold text-white text-lg shadow-sm transition bg-emerald-600 hover:bg-emerald-700">確認入庫</button>
                                 </div>
                             )}
                         </div>
@@ -973,11 +1094,11 @@
 
             const POSView = () => {
                 const [cart, setCart] = useState([]);
-                const [targetStore, setTargetStore] = useState(isHQ ? 'store-tn' : currentRole);
+                const [targetStore, setTargetStore] = useState(currentRole);
 
                 useEffect(() => {
-                    setTargetStore(isHQ ? 'store-tn' : currentRole);
-                }, [currentRole, isHQ]);
+                    setTargetStore(currentRole);
+                }, [currentRole]);
 
                 const addToCart = (item) => {
                     if (getStockForStore(item, targetStore) <= 0) return;
@@ -1091,8 +1212,8 @@
                     <div className="p-6 border-b border-stone-200 bg-stone-50">
                         <div className="flex flex-col xl:flex-row xl:items-center xl:justify-between gap-4">
                             <div>
-                                <h3 className="text-lg font-black text-stone-900">進出貨明細</h3>
-                                <p className="text-sm text-stone-500 mt-1">可用門市、數量區間、年月份篩選，並下載 Excel 報表。</p>
+                                <h3 className="text-lg font-black text-stone-900">進貨明細</h3>
+                                <p className="text-sm text-stone-500 mt-1">只保留進貨與入庫資料，銷售不再列為出貨明細。</p>
                             </div>
                             <button onClick={exportMovementLogs} className="inline-flex items-center justify-center gap-2 bg-stone-900 hover:bg-stone-800 text-white font-bold px-4 py-2 rounded-xl shadow-sm transition">
                                 <DownloadIcon />下載 Excel
@@ -1113,9 +1234,9 @@
                     </div>
 
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-4 p-6 border-b border-stone-200 bg-white">
-                        <div className="rounded-xl bg-stone-100 border border-stone-200 p-4"><p className="text-xs font-semibold text-stone-600">筆數</p><p className="text-2xl font-black text-stone-900 mt-1">{movementSummary.total}</p></div>
-                        <div className="rounded-xl bg-blue-50 border border-blue-100 p-4"><p className="text-xs font-semibold text-blue-700">進貨量</p><p className="text-2xl font-black text-stone-900 mt-1">{movementSummary.inboundQty}</p></div>
-                        <div className="rounded-xl bg-red-50 border border-red-100 p-4"><p className="text-xs font-semibold text-red-700">出貨量</p><p className="text-2xl font-black text-stone-900 mt-1">{movementSummary.outboundQty}</p></div>
+                        <div className="rounded-xl bg-stone-100 border border-stone-200 p-4"><p className="text-xs font-semibold text-stone-600">進貨筆數</p><p className="text-2xl font-black text-stone-900 mt-1">{inboundSummary.total}</p></div>
+                        <div className="rounded-xl bg-blue-50 border border-blue-100 p-4"><p className="text-xs font-semibold text-blue-700">進貨數量</p><p className="text-2xl font-black text-stone-900 mt-1">{inboundSummary.inboundQty}</p></div>
+                        <div className="rounded-xl bg-amber-50 border border-amber-100 p-4"><p className="text-xs font-semibold text-amber-700">即期批次筆數</p><p className="text-2xl font-black text-stone-900 mt-1">{inboundSummary.expiringSoonCount}</p></div>
                     </div>
 
                     <div className="overflow-x-auto">
@@ -1128,15 +1249,15 @@
                                     <th className="p-4 border-b border-stone-200 font-bold">品項</th>
                                     <th className="p-4 border-b border-stone-200 font-bold text-right">數量</th>
                                     <th className="p-4 border-b border-stone-200 font-bold text-right">單位成本</th>
-                                    <th className="p-4 border-b border-stone-200 font-bold text-right">單位售價</th>
+                                    <th className="p-4 border-b border-stone-200 font-bold text-center">最近進貨效期</th>
                                     <th className="p-4 border-b border-stone-200 font-bold">備註</th>
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-stone-100">
-                                {filteredMovementLogs.length === 0 && (
-                                    <tr><td colSpan="8" className="p-8 text-center text-stone-500 font-medium">目前沒有符合條件的進出貨資料。</td></tr>
+                                {filteredInboundLogs.length === 0 && (
+                                    <tr><td colSpan="8" className="p-8 text-center text-stone-500 font-medium">目前沒有符合條件的進貨資料。</td></tr>
                                 )}
-                                {filteredMovementLogs.map((log) => (
+                                {filteredInboundLogs.map((log) => (
                                     <tr key={log.id} className="hover:bg-stone-50">
                                         <td className="p-4"><div className="font-bold text-stone-900">{log.date}</div><div className="text-xs text-stone-500">{log.time}</div></td>
                                         <td className="p-4 font-semibold text-stone-700">{getStoreName(log.store)}</td>
@@ -1144,7 +1265,7 @@
                                         <td className="p-4"><div className="font-bold text-stone-900">{log.item}</div><div className="text-xs text-stone-500">{log.itemId}</div></td>
                                         <td className="p-4 text-right font-black text-stone-900">{log.qty}</td>
                                         <td className="p-4 text-right text-stone-700">{formatCurrency(log.unitCost)}</td>
-                                        <td className="p-4 text-right text-red-700 font-semibold">{formatCurrency(log.unitPrice)}</td>
+                                        <td className="p-4 text-center font-semibold text-stone-700">{log.expiryDate || getEarliestExpiryDate(getItemById(log.itemId), log.store)}</td>
                                         <td className="p-4 text-sm text-stone-600">{log.note || (log.counterpartyStore ? `對象：${getStoreName(log.counterpartyStore)}` : '-')}</td>
                                     </tr>
                                 ))}
@@ -1156,15 +1277,15 @@
 
             const sidebarItems = [
                 { id: 'dashboard', icon: <ChartIcon />, label: '營運儀錶板' },
-                { id: 'pos', icon: <CartIcon />, label: '門市前台點餐' },
-                { id: 'inventory', icon: <BoxIcon />, label: '食安與庫存' },
+                { id: 'pos', icon: <CartIcon />, label: '門市前台點餐', reqStore: true },
+                { id: 'inventory', icon: <BoxIcon />, label: '食安與進貨庫存' },
                 { id: 'shipping', icon: <TruckIcon />, label: '總部配送', reqHQ: true },
-                { id: 'scanner', icon: <ScanIcon />, label: '進出庫掃描' },
-                { id: 'logs', icon: <StoreIcon />, label: '進出貨明細' }
+                { id: 'scanner', icon: <ScanIcon />, label: '進貨掃描' },
+                { id: 'logs', icon: <StoreIcon />, label: '進貨明細' }
             ];
 
             const mobileItems = sidebarItems.filter((item) => ['dashboard', 'inventory', 'scanner', 'logs'].includes(item.id));
-            const activeTitle = { dashboard: '營運儀錶板', pos: '門市前台點餐', inventory: '食安與庫存', shipping: '總部配送', scanner: '進出庫掃描', logs: '進出貨明細' }[activeTab];
+            const activeTitle = { dashboard: '營運儀錶板', pos: '門市前台點餐', inventory: '食安與進貨庫存', shipping: '總部配送', scanner: '進貨掃描', logs: '進貨明細' }[activeTab];
 
             return (
                 <div className="flex h-screen bg-stone-100 text-stone-900 pb-[72px] md:pb-0 overflow-hidden relative">
@@ -1173,12 +1294,13 @@
                             <div className="bg-red-700 p-2 rounded-xl shadow-lg shadow-red-900/40"><FireIcon /></div>
                             <div>
                                 <h1 className="font-black tracking-wide leading-tight">東山鴨頭 ERP</h1>
-                                <p className="text-xs text-stone-400 mt-1">營運、庫存、進出貨整合</p>
+                                <p className="text-xs text-stone-400 mt-1">ERP 系統 | TKY Design 製</p>
                             </div>
                         </div>
                         <nav className="flex-1 py-4 overflow-y-auto custom-scrollbar">
                             {sidebarItems.map((item) => {
                                 if (item.reqHQ && !isHQ) return null;
+                                if (item.reqStore && isHQ) return null;
                                 return <button key={item.id} onClick={() => setActiveTab(item.id)} className={`w-full flex items-center gap-4 px-6 py-4 transition ${activeTab === item.id ? 'bg-stone-800 border-l-4 border-red-600 text-white' : 'text-stone-400 hover:bg-stone-800/70'}`}>{item.icon}<span className="font-medium">{item.label}</span></button>;
                             })}
                         </nav>
@@ -1190,13 +1312,13 @@
                                 <div className="bg-red-700 p-2 rounded-xl text-white"><FireIcon /></div>
                                 <div>
                                     <div className="font-black text-sm leading-tight">東山鴨頭 ERP</div>
-                                    <div className="text-[11px] text-stone-500 mt-0.5">營運整合系統</div>
+                                    <div className="text-[11px] text-stone-500 mt-0.5">ERP 系統 | TKY Design 製</div>
                                 </div>
                             </div>
                             <h2 className="hidden md:block text-2xl font-black text-stone-900">{activeTitle}</h2>
                             <div className="flex items-center gap-2 bg-stone-100 border border-stone-200 rounded-full px-3 py-2">
                                 <UserIcon />
-                                <select value={currentRole} onChange={(event) => { setCurrentRole(event.target.value); if (activeTab === 'shipping' && event.target.value !== 'hq') setActiveTab('dashboard'); }} className="bg-transparent outline-none font-bold text-sm text-stone-800">
+                                <select value={currentRole} onChange={(event) => { setCurrentRole(event.target.value); if ((activeTab === 'shipping' || activeTab === 'pos') && event.target.value === 'hq') setActiveTab('dashboard'); if (activeTab === 'shipping' && event.target.value !== 'hq') setActiveTab('dashboard'); }} className="bg-transparent outline-none font-bold text-sm text-stone-800">
                                     {STORES.map((store) => <option key={store.id} value={store.id}>{store.name}</option>)}
                                 </select>
                             </div>
@@ -1208,7 +1330,7 @@
                                 {activeTab === 'inventory' && <InventoryView />}
                                 {activeTab === 'shipping' && isHQ && <ShippingView />}
                                 {activeTab === 'scanner' && <ScannerView />}
-                                {activeTab === 'pos' && <POSView />}
+                                {activeTab === 'pos' && currentRole !== 'hq' && <POSView />}
                                 {activeTab === 'logs' && <MovementLogsView />}
                             </div>
                         </div>
