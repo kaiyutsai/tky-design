@@ -1100,8 +1100,12 @@
         <details class="settings">
           <summary>單檔 HTML 設定</summary>
           <div class="settings-content">
-            <p class="settings-note">掃描改走 Firebase Functions 後端代理，前端頁面不再保存 Gemini API Key。</p>
-            <p class="settings-note">部署完成後，GitHub Pages、手機與平板都會共用同一個安全的辨識服務。</p>
+            <label>
+              Gemini API Key
+              <input id="geminiKeyInput" type="password" placeholder="請貼上你自己的 Gemini API Key" />
+            </label>
+            <button class="button-secondary" id="saveGeminiKeyButton" type="button">儲存 AI Key</button>
+            <p class="settings-note">這個單檔版會把 API Key 只存到目前裝置的瀏覽器，不會自動寫回 GitHub。</p>
           </div>
         </details>
 
@@ -1119,7 +1123,7 @@
               <h2 id="todayTitle">資料載入中...</h2>
             </div>
             <div class="meta-tags">
-              <span id="geminiStatusTag">AI 掃描：檢查中</span>
+              <span id="geminiStatusTag">Gemini：未設定</span>
               <span id="todayOperatorTag">今日操作人員：0</span>
             </div>
           </header>
@@ -1183,7 +1187,7 @@
               <div class="scan-head">
                 <p class="eyebrow">掃描入庫</p>
                 <h3>掃描站</h3>
-                <p class="panel-muted" id="scanHeaderStatus">正在檢查 Firebase 掃描代理服務。</p>
+                <p class="panel-muted" id="scanHeaderStatus">Gemini 未設定，請先在左側貼上 API Key。</p>
               </div>
 
               <div class="preview-panel" id="previewPanel" role="button" tabindex="0" aria-label="開啟掃描來源">
@@ -1417,11 +1421,15 @@
         const STORAGE_KEYS = {
           books: "book-html:books",
           entries: "book-html:entries",
+          geminiKey: "book-html:gemini-key",
         };
 
-        const LEGACY_GEMINI_STORAGE_KEY = "book-html:gemini-key";
-        const FUNCTION_REGION = "asia-east1";
-        const SCAN_PROXY_URL = `https://${FUNCTION_REGION}-${FIREBASE_CONFIG.projectId}.cloudfunctions.net/scanBookPage`;
+        function getGeminiKeyState(key) {
+          if (!key) {
+            return "missing";
+          }
+          return "ready";
+        }
 
         function extractGeminiErrorMessage(errorText) {
           try {
@@ -1432,7 +1440,7 @@
           }
         }
 
-        localStorage.removeItem(LEGACY_GEMINI_STORAGE_KEY);
+        const initialGeminiKey = localStorage.getItem(STORAGE_KEYS.geminiKey) || "";
 
         const EMPTY_DRAFT = () => ({
           title: "",
@@ -1612,7 +1620,8 @@
           isScanning: false,
           isSaving: false,
           showScanDetails: false,
-          scanServiceState: "checking",
+          geminiKey: initialGeminiKey,
+          geminiKeyState: getGeminiKeyState(initialGeminiKey),
         };
 
         const dom = {};
@@ -2237,48 +2246,94 @@
           return match ? match[0] : cleaned;
         }
 
-        async function checkScanService() {
-          try {
-            const response = await fetch(SCAN_PROXY_URL, { method: "GET" });
-            if (!response.ok) {
-              throw new Error(`HTTP ${response.status}`);
-            }
-            state.scanServiceState = "ready";
-          } catch (_error) {
-            state.scanServiceState = "offline";
-          }
+        function refreshGeminiState() {
+          state.geminiKeyState = getGeminiKeyState(state.geminiKey);
         }
 
         async function analyzeImage(file) {
+          if (!state.geminiKey) {
+            state.geminiKeyState = "missing";
+            throw new Error("請先在左側「單檔 HTML 設定」貼上 Gemini API Key。");
+          }
+
+          const prompt = `
+你是書籍版權頁辨識助手。
+請根據圖片內容擷取並整理以下欄位，並只輸出一個 JSON 物件：
+title, author, publisher, distributor, phone, fax, printer, edition, price, isbn, ministryCode, summary, suggestedQuantity, confidence
+
+規則：
+1. 這類圖片常是書籍版權頁或國家圖書館 CIP 頁，請優先擷取 ISBN、電話、傳真、印刷、初版、定價、出版社、總經銷與文化部字號。
+2. 若欄位不存在，請輸出空字串；price 無法判定時輸出 null。
+3. price 只輸出數字，不要包含 元。
+4. suggestedQuantity 若圖片沒有數量資訊，一律回傳 1。
+5. confidence 為 0 到 1。
+6. 若同時看得到簡稱與完整公司名稱，優先回傳完整公司名稱。
+`;
+
           const base64 = await fileToBase64(file);
-          const response = await fetch(SCAN_PROXY_URL, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              imageBase64: base64,
-              mimeType: file.type || "image/jpeg",
-            }),
-          });
+          let response;
+          try {
+            response = await fetch(
+              `https://generativelanguage.googleapis.com/v1beta/models/gemini-3-flash-preview:generateContent?key=${encodeURIComponent(state.geminiKey)}`,
+              {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                contents: [
+                  {
+                    parts: [
+                      { text: prompt },
+                      {
+                        inline_data: {
+                          mime_type: file.type || "image/jpeg",
+                          data: base64,
+                        },
+                      },
+                    ],
+                  },
+                ],
+                generationConfig: {
+                  temperature: 0.2,
+                  responseMimeType: "application/json",
+                },
+              }),
+            },
+            );
+          } catch (error) {
+            const message = error instanceof Error ? error.message : String(error || "");
+            if (/failed to fetch|load failed|networkerror|network request failed/i.test(message)) {
+              throw new Error("目前無法連到 Gemini API。請確認 API Key、網路連線，或瀏覽器是否擋住請求。");
+            }
+            throw error;
+          }
 
           if (!response.ok) {
             const errorText = await response.text();
             const geminiError = extractGeminiErrorMessage(errorText);
-            state.scanServiceState = "offline";
-            if (response.status === 404) {
-              throw new Error("Firebase 掃描代理尚未部署，請先部署 functions 後再試。");
+            if (/reported as leaked/i.test(geminiError)) {
+              state.geminiKeyState = "blocked";
+              throw new Error("這組 Gemini API Key 已被 Google 判定外流並停用，請換一組新的 API Key。");
             }
-            if (response.status === 503 || /missing gemini api key|not configured/i.test(geminiError)) {
-              throw new Error("Firebase 掃描代理尚未設定 Gemini 金鑰，請先在 Firebase Secret Manager 設定後再部署。");
+            if (/api key not valid|invalid api key/i.test(geminiError)) {
+              state.geminiKeyState = "invalid";
+              throw new Error("Gemini API Key 無效，請確認後再試。");
             }
-            throw new Error("掃描代理辨識失敗：" + geminiError);
+            if (response.status === 403) {
+              state.geminiKeyState = "invalid";
+              throw new Error("Gemini 拒絕這次請求，請確認 API Key 是否可用，或是否已啟用 Gemini API。");
+            }
+            throw new Error("Gemini 辨識失敗：" + geminiError);
           }
 
           const data = await response.json();
-          state.scanServiceState = "ready";
-          const parsed = data?.result;
-          if (!parsed || typeof parsed !== "object") {
-            throw new Error("掃描代理沒有回傳可解析內容，請換一張更清楚的圖片。");
+          state.geminiKeyState = "ready";
+          const rawText = (data.candidates?.[0]?.content?.parts || [])
+            .map((part) => part.text || "")
+            .join("\n");
+          if (!rawText) {
+            throw new Error("Gemini 沒有回傳可解析內容，請換一張更清楚的圖片。");
           }
+          const parsed = JSON.parse(extractJsonText(rawText));
 
           return {
             title: cleanText(parsed.title, "title"),
@@ -2565,6 +2620,8 @@
             "clearImageButton",
             "saveButton",
             "resetFormButton",
+            "saveGeminiKeyButton",
+            "geminiKeyInput",
             "draftTitle",
             "draftAuthor",
             "draftPublisher",
@@ -2592,19 +2649,22 @@
         }
 
         function updateGeminiStatus() {
-          const serviceState = state.scanServiceState || "checking";
+          const keyState = state.geminiKeyState || getGeminiKeyState(state.geminiKey);
           const statusMap = {
-            checking: "檢查中",
-            ready: "已連線",
-            offline: "待部署",
+            missing: "未設定",
+            ready: "已設定",
+            invalid: "Key 需檢查",
+            blocked: "Key 已停用",
           };
           const headerMap = {
-            checking: "正在檢查 Firebase 掃描代理服務。",
-            ready: "Firebase 掃描代理已連線，拍照後會自動開始辨識。",
-            offline: "Firebase 掃描代理尚未部署或尚未完成設定；完成部署後，手機與平板都會共用同一組辨識服務。",
+            missing: "Gemini 未設定，請先在左側貼上 API Key。",
+            ready: "Gemini 已設定，拍照後會自動開始辨識。",
+            invalid: "目前這組 Gemini API Key 無法使用，請檢查後重新儲存。",
+            blocked: "目前這組 Gemini API Key 已被停用，請改用新的 Gemini API Key。",
           };
-          dom.geminiStatusTag.textContent = "AI 掃描：" + (statusMap[serviceState] || "檢查中");
-          dom.scanHeaderStatus.textContent = headerMap[serviceState] || headerMap.checking;
+          dom.geminiStatusTag.textContent = "Gemini：" + (statusMap[keyState] || "未設定");
+          dom.scanHeaderStatus.textContent = headerMap[keyState] || headerMap.missing;
+          dom.geminiKeyInput.value = state.geminiKey;
         }
 
         function updateModeBox() {
@@ -2676,6 +2736,8 @@
             dom.draftSummary,
             dom.draftQuantity,
             dom.inventoryDatePicker,
+            dom.geminiKeyInput,
+            dom.saveGeminiKeyButton,
             dom.sheetCameraButton,
             dom.sheetUploadButton,
             dom.sheetCancelButton,
@@ -2977,10 +3039,16 @@
             renderAll();
             return;
           }
+          if (!state.geminiKey) {
+            refreshGeminiState();
+            state.scanMessage = "請先在左側「單檔 HTML 設定」貼上 Gemini API Key。";
+            renderAll();
+            return;
+          }
 
           state.isCaptureSheetOpen = false;
           state.isScanning = true;
-          state.scanMessage = "AI 掃描代理正在辨識書頁內容，稍候會自動填入表單。";
+          state.scanMessage = "Gemini 正在辨識書頁內容，稍候會自動填入表單。";
           renderAll();
 
           try {
@@ -3062,6 +3130,16 @@
           }
         }
 
+        function saveGeminiKey() {
+          state.geminiKey = dom.geminiKeyInput.value.trim();
+          refreshGeminiState();
+          localStorage.setItem(STORAGE_KEYS.geminiKey, state.geminiKey);
+          state.scanMessage = state.geminiKey
+            ? "Gemini API Key 已儲存，可以直接拍照辨識。"
+            : "Gemini API Key 已清空，仍可手動輸入表單。";
+          renderAll();
+        }
+
         function bindDraftInputs() {
           const bindings = [
             ["title", dom.draftTitle],
@@ -3104,6 +3182,8 @@
               renderAll();
             });
           });
+
+          dom.saveGeminiKeyButton.addEventListener("click", saveGeminiKey);
 
           dom.previewPanel.addEventListener("click", openCaptureSheet);
           dom.previewPanel.addEventListener("keydown", (event) => {
@@ -3202,7 +3282,7 @@
           cacheDom();
           bindStaticEvents();
           await initFirebase();
-          await checkScanService();
+          refreshGeminiState();
           const snapshot = await loadSnapshot();
           state.books = snapshot.books;
           state.entries = snapshot.entries;
